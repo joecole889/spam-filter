@@ -1,0 +1,4 @@
+{
+	"SetJournalMode" : "PRAGMA journal_mode = TRUNCATE",
+	"EnforceForeignKeys" : "PRAGMA foreign_keys = ON"
+}

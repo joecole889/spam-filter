@@ -1,0 +1,4 @@
+ERROR:root:Unable to connect to database at c:\users\jcole1~1\appdata\local\temp\tmp0sdzjxsqlite3
+ERROR:root:Failed to remove temporary database: c:\users\jcole1~1\appdata\local\temp\tmp0sdzjxsqlite3
+ERROR:root:[Error 32] The process cannot access the file because it is being used by another process: 'c:\\users\\jcole1~1\\appdata\\local\\temp\\tmp0sdzjxsqlite3'
+INFO:root:Created temporary database at c:\users\jcole1~1\appdata\local\temp\tmpwvijgq.sqlite3

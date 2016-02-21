@@ -1,0 +1,14 @@
+{
+	"CreateDictBuildTable" : "CREATE TABLE dictbuild (sample_id INTEGER, dict_id INTEGER, UNIQUE(sample_id, dict_id));",
+	"CreateDictTable" : "CREATE TABLE %s (id INTEGER PRIMARY KEY,word TEXT UNIQUE,counter INTEGER)",
+	"CreateFeatureTable" : "CREATE TABLE features (sample_id INTEGER, wordlist_id INTEGER, featurevec BLOB, UNIQUE(sample_id,wordlist_id) ) ",
+	"DictBuildTableName" : "dictbuild",
+	"DropTable" : "DROP TABLE IF EXISTS %s",
+	"InsertDict" : "INSERT INTO dictlist (id, dictname, humanname) VALUES (?,?,?)",
+	"InsertFeature" : "INSERT INTO features (sample_id,wordlist_id,featurevec) VALUES (?,?,?)",
+	"InsertUsed" : "INSERT INTO dictbuild (sample_id,dict_id) VALUES (?,?)",
+	"RetrieveWordCount" : "SELECT counter FROM %s WHERE word = ?",
+	"SelectWordCount" : "SELECT id,counter FROM %s WHERE word = ?",
+	"TableList" : ["dictbuild"],
+	"UpdateWordCount" : "INSERT OR REPLACE INTO %s (word, counter) VALUES (?,?)"
+}
