@@ -12,10 +12,7 @@ try :
 except ImportError :
 	import tkinter as tki
 
-try :
-	import tkFileDialog
-except ImportError :
-	import filedialog
+import tkFileDialog
 
 class DBBuildGUI(tki.Frame) :
 	def __init__(self, root, *args, **kwargs) :
@@ -127,7 +124,7 @@ if __name__ == "__main__" :
 	#pdb.set_trace()
 	root = tki.Tk()
 	root.wm_title("Build the email sample database")
-	icon_image = tki.Image("photo",file=r"./MainGUI.gif")
+	icon_image = tki.Image("photo",file=r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\MainGUI.gif")
 	root.tk.call('wm','iconphoto',root._w,icon_image)
 	MainWinHan = DBBuildGUI(root)
 	root.mainloop()

@@ -43,6 +43,7 @@
 	"SelectWordCount" : "SELECT id,counter FROM %s WHERE word = ?",
 	"SelectWordList" : "SELECT listname FROM wordlists WHERE id = ? LIMIT 1",
 	"SelectWordListID" : "SELECT id FROM wordlists WHERE listname = ? LIMIT 1",
+	"SelectWordLists" : "SELECT listname,humanname FROM wordlists",
 	"SelectWords" : "SELECT word FROM %s WHERE id IN (SELECT word_id FROM %s WHERE dict_id=?)",
 	"SetList" : ["Training","Cross Validation","Test"],
 	"TableList" : ["classes","sets","emails","dictlist","dictbuild","wordlists","features"],
