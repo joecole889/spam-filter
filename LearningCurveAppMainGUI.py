@@ -15,6 +15,7 @@ import tkFileDialog
 import logging
 from EmailSamplesDB import *
 from sklearn.svm import SVC
+import threading
 
 try :
 	import Tkinter as tki
@@ -122,7 +123,7 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.MaxSamplesLab = tki.Label(InputGrid,text="Max Samples",anchor=tki.E,width=15,padx=5)
 		self.MaxSamplesLab.grid(row=1,column=0)
 		self.MaxSamplesVal = tki.Entry(InputGrid,width=7)
-		self.MaxSamplesVal.insert(0,"1600")
+		self.MaxSamplesVal.insert(0,"1800")
 		self.MaxSamplesVal.grid(row=1,column=1,sticky=tki.W)
 
 		self.OutputStepLab = tki.Label(InputGrid,text="Output Step Size",anchor=tki.E,width=15,padx=5)
@@ -143,8 +144,7 @@ class LearningCurveAppMainGUI(tki.Frame) :
 
 	def DefineButtons(self,parent=None) :
 		InputButtons = tki.Frame(parent,pady=25)
-		self.GoButton = tki.Button(InputButtons,text="Generate\nCurves",justify=tki.CENTER,padx=2)
-		self.GoButton.bind("<ButtonRelease-1>",self.Go)
+		self.GoButton = tki.Button(InputButtons,text="Generate\nCurves",justify=tki.CENTER,padx=2,command=self.Go)
 		self.GoButton.pack(side=tki.LEFT,padx=5)
 		self.PauseButton = tki.Button(InputButtons,text="Pause",justify=tki.CENTER,padx=10)
 		self.PauseButton.pack(side=tki.LEFT,fill=tki.Y,padx=5)
@@ -223,21 +223,36 @@ class LearningCurveAppMainGUI(tki.Frame) :
 
 		listchoice = self.WordListsVar.get()
 		Xcv,Ycv = self.DBobj.GetXY(listchoice,1)
+
+		stopper = CancelCatchThread(self.PauseButton)
+		stopper.start()
+
 		for m in range(0,NumTraining,step) :
 			Xs,Ys = self.DBobj.GetXY(listchoice,0,step,m)
 			Xtrain.extend(Xs)
 			Ytrain.extend(Ys)
 			for cost in Cs :
+				if not stopper.isAlive() :
+					break
 				clfs.append(SVC(C=cost,kernel='linear'))
 				clfs[jj].fit(Xtrain,Ytrain)
+				if not stopper.isAlive() :
+					break
 				TrainScore = clfs[jj].score(Xtrain,Ytrain)
+				if not stopper.isAlive() :
+					break
 				CVScore = clfs[jj].score(Xcv,Ycv)
 				logging.debug('%d, %d, %f, %f, %f'%(jj, m+step, cost, TrainScore, CVScore))
 				jj += 1
+			if not stopper.isAlive() :
+				break
 			self.UpdatePlot()
-		Xtest,Ytest = self.DBobj.GetXY(listchoice,2)
-		TestScore = clfs[-1].score(Xtest,Ytest)
-		logging.debug("SVM test result: %d, %d, %f, %f"%(jj-1,m+step,cost,TestScore))
+		if stopper.isAlive() :
+			Xtest,Ytest = self.DBobj.GetXY(listchoice,2)
+			TestScore = clfs[-1].score(Xtest,Ytest)
+			logging.debug("SVM test result: %d, %d, %f, %f"%(jj-1,m+step,cost,TestScore))
+
+		stopper.stop()
 		return
 	
 	def UpdatePlot(self) :
@@ -271,6 +286,21 @@ class LearningCurveAppMainGUI(tki.Frame) :
 			Cs = None
 		return Cs
 
+class CancelCatchThread(threading.Thread) :
+	def __init__(self,ButtonRef) :
+		super(CancelCatchThread,self).__init__()
+		self.stoprequest = threading.Event()
+		self.ButtonRef = ButtonRef
+
+	def run(self) :
+		self.ButtonRef.configure(text = "Stopping", command=self.stop)
+		while not self.stoprequest.is_set() :
+			pass
+		logging.info("Stop button pushed.")
+
+	def stop(self) :
+		self.stoprequest.set()
+
 ################### Main Program ################### 
 
 if __name__ == "__main__" :
@@ -287,7 +317,7 @@ if __name__ == "__main__" :
 
 	root = tki.Tk()
 	root.wm_title("Learning Curve Analysis")
-	icon_image = tki.Image("photo",file=r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\MainGUI.gif")
+	icon_image = tki.Image("photo",file=r"./MainGUI.gif")
 	root.tk.call('wm','iconphoto',root._w,icon_image)
 	MainWinHan = LearningCurveAppMainGUI(root,**params)
 	root.mainloop()
