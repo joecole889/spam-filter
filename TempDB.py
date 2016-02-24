@@ -18,6 +18,7 @@ class TempDB :
 			self.SQLCMDs = json.loads(SQLCMDStr)
 		except Exception as detail :
 			logging.error("Unable to load SQL commands from %s: %s"%(sqlcmdpath,detail))
+			exit()
 		self.CreateDB()
 		return
 

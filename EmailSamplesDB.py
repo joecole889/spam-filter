@@ -23,12 +23,13 @@ class EmailSamplesDB :
 	DB_Cursor = None
 	params = dict()
 
-	def __init__(self,sqlcmdpath,pragmacmdpath) :
+	def __init__(self,sqlcmdpath,pragmacmdpath,tempsqlcmdpath,**params) :
 		self.DBpath = None
 		self.params['CommitFreq'] = 200
-		self.params['TempDBCMDs'] = r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\TempDB_SQL.json"
+		self.params['TempDBCMDs'] = tempsqlcmdpath
 		self.params['MaxCountFrac'] = 0.003
 		self.params['MinCountFrac'] = 0.00003
+		self.params.update(params)
 		try :
 			fhan = open(sqlcmdpath)
 			SQLCMDStr = fhan.read()
@@ -36,6 +37,7 @@ class EmailSamplesDB :
 			self.SQLCMDs = json.loads(SQLCMDStr)
 		except Exception as detail :
 			logging.error("Unable to load SQL commands from %s: %s"%(sqlcmdpath,detail))
+			exit()
 		try :
 			fhan = open(pragmacmdpath)
 			PragmaCMDStr = fhan.read()
@@ -43,6 +45,7 @@ class EmailSamplesDB :
 			self.DBSetup = json.loads(PragmaCMDStr)
 		except Exception as detail :
 			logging.error("Unable to load PRAGMA commands from %s: %s"%(pragmacmdpath,detail))
+			exit()
 		return
 
 	def __del__(self) :
@@ -60,6 +63,19 @@ class EmailSamplesDB :
 			self.DBpath = DBpath
 		except :
 			logging.error("Unable to connect to database at %s"%DBpath)
+		return
+
+	def DisconnectDB(self) :
+		try :
+			if self.DB_Connect is not None :
+				self.DB_Cursor = None
+				self.DB_Connect.close()
+				logging.info("Disconnected the database: %s"%self.DBpath)
+				self.DB_Connect = None
+			else :
+				logging.info("No database to disconnect.")
+		except Exception as detail :
+			logging.error("Failed to disconnect the database: %s"%detail)
 		return
 
 	def CreateDB(self) :
@@ -438,6 +454,14 @@ class EmailSamplesDB :
 			logging.error("Failed to get count of training samples in database: %s"%detail)
 		return CurSampleCount
 
+	def GetAvailableWordLists(self) :
+		try :
+			self.DB_Cursor.execute(self.SQLCMDs['SelectWordLists'])
+			WordLists = self.DB_Cursor.fetchall()
+		except Exception as detail :
+			logging.error("Failed to return word lists: %s"%detail)
+		return WordLists
+
 	def GetXY(self,WordListRef,SetID,Limit=None,Offset=0) :
 		try :
 			if isinstance(WordListRef,str) :
@@ -506,15 +530,17 @@ class EmailSamplesDB :
 
 if __name__ == "__main__" :
 	logging.basicConfig(level=logging.INFO)
-	aa = EmailSamplesDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\EmailSamplesDB_SQL.json",
-						r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\DBSetup_SQL.json")
-	aa.ConnectDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\tester2.sqlite3")
+	aa = EmailSamplesDB(r"./EmailSamplesDB_SQL.json",
+						r"./DBSetup_SQL.json",
+						r"./TempDB_SQL.json")
+	aa.ConnectDB(r"EmailSampleTestDB.sqlite3")
 	print "Creating fresh database"
 	aa.CreateDB()
 	print "Adding good email messages"
-	aa.AddToDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\EmailSamples\easy_ham","Legitimate Email",[.6,.2,.2])
+	#pdb.set_trace()
+	aa.AddToDB(r"./EmailSamples/easy_ham","Legitimate Email",[.6,.2,.2])
 	print "Adding spam email messages"
-	aa.AddToDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\EmailSamples\spam",1,[.6,.2,.2])
+	aa.AddToDB(r"./EmailSamples/spam",1,[.6,.2,.2])
 	print "Creating fresh dictionary"
 	DictRef = aa.CreateDict('My first dictionary')
 	print "Updating word histograms"
@@ -523,19 +549,19 @@ if __name__ == "__main__" :
 	WordListRef = aa.CreateWordList("Test word list",DictRef)
 	print "Updating the word list"
 	aa.UpdateWordList(WordListRef)
-	print "Loading a word list from file"
-	dict_id = aa.LoadWords(r"C:\Users\jcole119213\Documents\Python Scripts\vocab.txt")
-	list_id = aa.CreateWordList("Words from vocab.txt",dict_id)
-	aa.UpdateWordList(list_id,False)
+	#print "Loading a word list from file"
+	#dict_id = aa.LoadWords(r"C:\Users\jcole119213\Documents\Python Scripts\vocab.txt")
+	#list_id = aa.CreateWordList("Words from vocab.txt",dict_id)
+	#aa.UpdateWordList(list_id,False)
 	print "Making the feature vectors"
 	start_time = time.time()
 	aa.MakeFeatureVecs(WordListRef,"SelectBodies")
 	elapsed_time = time.time() - start_time
 	print "Elapsed time:",elapsed_time,'s'
-	start_time = time.time()
-	aa.MakeFeatureVecs(list_id,"SelectBodies")
-	elapsed_time = time.time() - start_time
-	print "Elapsed time:",elapsed_time,'s'
+	#start_time = time.time()
+	#aa.MakeFeatureVecs(list_id,"SelectBodies")
+	#elapsed_time = time.time() - start_time
+	#print "Elapsed time:",elapsed_time,'s'
 	#print "Write a word list to a file"
 	#FileName = r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\TestDict.txt"
 	#aa.WriteWords("wordlist0",FileName)
