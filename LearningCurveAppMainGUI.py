@@ -392,15 +392,17 @@ class LearningCurveAppMainGUI(tki.Frame) :
 	def NewMaxSamps(self,*_) :
 		with self.watchlock :
 			temp_xsec_state = self.watchlist[0]
-			self.watchlist[1][1] = self.GetMaxTraining()
-		if not temp_xsec_state :
+			CurrentMaxSamp = self.watchlist[1][1]
+			NewMaxSamp = self.GetMaxTraining()
+			self.watchlist[1][1] = NewMaxSamp
+		if not temp_xsec_state and (NewMaxSamp != CurrentMaxSamp):
 			try :
 				logging.debug("Sending graph state change signal NewMaxSamps().")
 				self.PlotDataQ.put(None)
 			except Exception as detail :
 				logging.error("Failed to send graph state change signal: %s"%detail)
 		else :
-			logging.debug("No need to send graph state change signal from NewMaxSamps() due to cross section button state.")
+			logging.debug("No need to send graph state change signal from NewMaxSamps().")
 
 ################### Main Program ################### 
 
