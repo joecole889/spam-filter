@@ -16,6 +16,8 @@ import logging
 from EmailSamplesDB import *
 from sklearn.svm import SVC
 import threading
+from TrainSVMs import *
+from PlotWorker import *
 
 try :
 	import Tkinter as tki
@@ -25,6 +27,13 @@ except ImportError :
 class LearningCurveAppMainGUI(tki.Frame) :
 	def __init__(self, root, **params) :
 		self.params = params
+		self.watchlock = threading.Lock()
+		self.PauseLock = threading.Lock()
+		self.PlotDataQ = Queue.Queue()
+		self.datastore = []
+		self.watchlist = [False,[600,1800],[1,3]]
+		self.DBpath = None
+
 		tki.Frame.__init__(self, root)
 		self.root = root
 		self.pack()
@@ -50,27 +59,27 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.CrossSectionButton.pack(side=tki.TOP,pady=25)
 
 		self.file_opt = {}
-		self.file_opt['initialdir'] = 'C:\\'
+		self.file_opt['initialdir'] = r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\\"
 		self.file_opt['filetypes'] = [('database files','.sqlite3'),('all files','.*')]
 		self.file_opt['title'] = 'Select a email database file or create a new one'
 
 		self.DBobj = EmailSamplesDB(params['sqlpath'],params['pragmapath'],params['tempsqlpath'])
+		self.StartPlotWorker()
 		return
 
 	def PrepareExit(self) :
 		self.LearningCurveCanvas.get_tk_widget().destroy()
 		self.toolbar.destroy()
 		self.root.destroy()
-
 		return
 
 	def DefineMenuBar(self, parent=None) :
 		menubar = tki.Menu(parent)
 
 		filemenu = tki.Menu(menubar, tearoff=0)
-		filemenu.add_command(label="New Database...")
-		filemenu.add_command(label="Open Database...", command=self.ConnectDB)
-		filemenu.add_command(label="Close Database", command=self.DisconnectDB)
+		filemenu.add_command(label="New Database...",command=self.NewDB)
+		filemenu.add_command(label="Open Database...", command=self.OpenDB)
+		filemenu.add_command(label="Close Database...", command=self.CloseDB)
 		filemenu.add_separator()
 		filemenu.add_command(label="Load Word List from File...")
 		filemenu.add_command(label="Save Word List to File...")
@@ -94,19 +103,43 @@ class LearningCurveAppMainGUI(tki.Frame) :
 
 		return menubar
 
-	def ConnectDB(self) :
-		filename = tkFileDialog.askopenfilename(**self.file_opt)
+	def NewDB(self) :
+		filename = tkFileDialog.asksaveasfilename(**self.file_opt)
+		self.DBpath = filename
 		logging.debug('Connecting to database at %s'%filename)
 		self.DBobj.ConnectDB(filename)
 		logging.debug('Result: %s'%self.DBobj.DB_Connect)
-		WordLists = self.DBobj.GetAvailableWordLists()
+		try :
+			logging.debug('Creating fresh database at %s'%filename)
+			self.DBobj.CreateDB()
+		finally :
+			logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
+			self.DBobj.DisconnectDB()
+			logging.debug('Result: %s'%self.DBobj.DB_Connect)
+		return
+
+	def OpenDB(self) :
+		filename = tkFileDialog.askopenfilename(**self.file_opt)
+		self.DBpath = filename
+		WordLists = self.GetWordLists(filename)
 		self.UpdateWordListDropDown(WordLists)
 		return
 
-	def DisconnectDB(self) :
-		logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
-		self.DBobj.DisconnectDB()
+	def GetWordLists(self,filename) :
+		logging.debug('Connecting to database at %s'%filename)
+		self.DBobj.ConnectDB(filename)
 		logging.debug('Result: %s'%self.DBobj.DB_Connect)
+		try :
+			WordLists = self.DBobj.GetAvailableWordLists()
+		finally :
+			logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
+			self.DBobj.DisconnectDB()
+			logging.debug('Result: %s'%self.DBobj.DB_Connect)
+		return WordLists
+
+	def CloseDB(self) :
+		assert self.DBobj.DB_Connect is None, "Expected database connection to already be closed, but it wasn't"
+		self.DBPath = None
 		self.UpdateWordListDropDown(None)
 		return
 
@@ -124,18 +157,20 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.MaxSamplesLab.grid(row=1,column=0)
 		self.MaxSamplesVal = tki.Entry(InputGrid,width=7)
 		self.MaxSamplesVal.insert(0,"1800")
+		self.MaxSamplesVal.bind("<FocusOut>",self.NewMaxSamps)
+		self.MaxSamplesVal.bind("<Return>",self.NewMaxSamps)
 		self.MaxSamplesVal.grid(row=1,column=1,sticky=tki.W)
 
 		self.OutputStepLab = tki.Label(InputGrid,text="Output Step Size",anchor=tki.E,width=15,padx=5)
 		self.OutputStepLab.grid(row=2,column=0)
 		self.OutputStepVal= tki.Entry(InputGrid,width=7)
-		self.OutputStepVal.insert(0,"100")
+		self.OutputStepVal.insert(0,"600")
 		self.OutputStepVal.grid(row=2,column=1,sticky=tki.W)
 
 		self.CostListLab = tki.Label(InputGrid,text="List of costs to try",anchor=tki.E,width=15,padx=5)
 		self.CostListLab.grid(row=3,column=0)
 		self.CostListVal = tki.Entry(InputGrid,width=40)
-		self.CostListVal.insert(0,"0.01, 0.03, 0.1, 0.3, 1, 3, 10")
+		self.CostListVal.insert(0,"0.1, 0.3, 1, 3")
 		self.CostListVal.bind("<FocusOut>",self.UpdateCostList)
 		self.CostListVal.bind("<Return>",self.UpdateCostList)
 		self.CostListVal.grid(row=3,column=1,sticky=tki.W)
@@ -146,7 +181,7 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		InputButtons = tki.Frame(parent,pady=25)
 		self.GoButton = tki.Button(InputButtons,text="Generate\nCurves",justify=tki.CENTER,padx=2,command=self.Go)
 		self.GoButton.pack(side=tki.LEFT,padx=5)
-		self.PauseButton = tki.Button(InputButtons,text="Pause",justify=tki.CENTER,padx=10)
+		self.PauseButton = tki.Button(InputButtons,text="Stop\nExecution",justify=tki.CENTER,padx=10)
 		self.PauseButton.pack(side=tki.LEFT,fill=tki.Y,padx=5)
 
 		return InputButtons
@@ -158,6 +193,7 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.toolbar.update()
 
 		self.CostListDropDownVar = tki.StringVar(outcontrols)
+		self.CostListDropDownVar.trace("w", self.NewCostSelect)
 		self.CostDropDown = tki.OptionMenu(outcontrols,self.CostListDropDownVar,None)
 		self.UpdateCostList()
 		self.CostDropDown.pack(side=tki.RIGHT,fill=tki.Y)
@@ -174,21 +210,27 @@ class LearningCurveAppMainGUI(tki.Frame) :
 
 	def DefineXSecButton(self,parent=None) :
 		XSecButtonFrame = tki.Frame(parent,pady=15)
-		self.XSecButton = tki.Button(XSecButtonFrame,text="Cross Section")
+		self.XSecButton = tki.Button(XSecButtonFrame,text="Cross Section",command=self.ToggleXSec)
 		self.XSecButton.pack()
 
 		return XSecButtonFrame
 
 	def UpdateCostList(self,_=None) :
-		CostListStr = self.CostListVal.get()
+		Cs = self.GetCostList()
 		self.CostDropDown['menu'].delete(0,'end')
 
-		for ii,CostStr in enumerate(CostListStr.split(',')) :
-			CostStr = CostStr.strip()
+		maxC = -1
+		for ii,C in enumerate(Cs) :
+			if C>maxC : maxC = C
+			CostStr = str(C)
 			if ii == 0 :
 				self.CostListDropDownVar.set(CostStr)
 			self.CostDropDown['menu'].add_command(label=CostStr, command=tki._setit(self.CostListDropDownVar, CostStr))
 
+		with self.watchlock :
+			tempvar = self.watchlist[2][1]
+		if maxC != tempvar :
+			self.NewCostMax(maxC)
 		return
 
 	def UpdateWordListDropDown(self,NewList) :
@@ -204,61 +246,31 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		return
 
 	def Go(self,_=None) :
-		jj = 0
-		clfs = []
-		Xtrain = []
-		Ytrain = []
+		got_lock = self.PauseLock.acquire(False)
+		if got_lock :
+			step = self.GetStep()
+			if step is None :
+				return
+			Cs = self.GetCostList()
+			if Cs is None :
+				return
+			MaxTraining = self.GetMaxTraining()
+			if MaxTraining is None :
+				return
 
-		step = self.GetStep()
-		if step is None :
-			return
-		Cs = self.GetCostList()
-		if Cs is None :
-			return
-		MaxTraining = self.GetMaxTraining()
-		if MaxTraining is None :
-			return
-		NumTraining = self.DBobj.GetTrainSampleCount()
-		NumTraining = min(NumTraining,MaxTraining)
+			listchoice = self.WordListsVar.get()
 
-		listchoice = self.WordListsVar.get()
-		Xcv,Ycv = self.DBobj.GetXY(listchoice,1)
-
-		stopper = CancelCatchThread(self.PauseButton)
-		stopper.start()
-
-		for m in range(0,NumTraining,step) :
-			Xs,Ys = self.DBobj.GetXY(listchoice,0,step,m)
-			Xtrain.extend(Xs)
-			Ytrain.extend(Ys)
-			for cost in Cs :
-				if not stopper.isAlive() :
-					break
-				clfs.append(SVC(C=cost,kernel='linear'))
-				clfs[jj].fit(Xtrain,Ytrain)
-				if not stopper.isAlive() :
-					break
-				TrainScore = clfs[jj].score(Xtrain,Ytrain)
-				if not stopper.isAlive() :
-					break
-				CVScore = clfs[jj].score(Xcv,Ycv)
-				logging.debug('%d, %d, %f, %f, %f'%(jj, m+step, cost, TrainScore, CVScore))
-				jj += 1
-			if not stopper.isAlive() :
-				break
-			self.UpdatePlot()
-		if stopper.isAlive() :
-			Xtest,Ytest = self.DBobj.GetXY(listchoice,2)
-			TestScore = clfs[-1].score(Xtest,Ytest)
-			logging.debug("SVM test result: %d, %d, %f, %f"%(jj-1,m+step,cost,TestScore))
-
-		stopper.stop()
+			ParamSpace = dict()
+			ParamSpace['Step'] = step
+			ParamSpace['MaxTraining'] = MaxTraining
+			ParamSpace['WordList'] = listchoice
+			ParamSpace['Costs'] = Cs
+			TrainThread = TrainSVMs(self.DBobj,self.DBpath,self.PauseButton,self.PauseLock,self.PlotDataQ,**ParamSpace)
+			TrainThread.daemon = True
+			self.PauseButton.configure(command=TrainThread.stop)
+			TrainThread.start()
 		return
 	
-	def UpdatePlot(self) :
-		pass
-		return
-
 	def GetStep(self) :
 		stepstr = self.OutputStepVal.get()
 		try :
@@ -286,20 +298,62 @@ class LearningCurveAppMainGUI(tki.Frame) :
 			Cs = None
 		return Cs
 
-class CancelCatchThread(threading.Thread) :
-	def __init__(self,ButtonRef) :
-		super(CancelCatchThread,self).__init__()
-		self.stoprequest = threading.Event()
-		self.ButtonRef = ButtonRef
+	def GetCostSelect(self) :
+		coststr = self.CostListDropDownVar.get()
+		try :
+			cost = float(coststr)
+		except ValueError as detail :
+			logging.error("Couldn't convert selected cost value %s to a float: %s"%(coststr,detail))
+			cost = None
+		return cost
 
-	def run(self) :
-		self.ButtonRef.configure(text = "Stopping", command=self.stop)
-		while not self.stoprequest.is_set() :
-			pass
-		logging.info("Stop button pushed.")
+	def StartPlotWorker(self) :
+		PlotThread = PlotWorker(self.PlotDataQ, self.datastore, self.ax, self.watchlist, self.watchlock)
+		PlotThread.daemon = True
+		PlotThread.start()
+		return
 
-	def stop(self) :
-		self.stoprequest.set()
+	def ToggleXSec(self) :
+		with self.watchlock :
+			self.watchlist[0] = tempvar = not self.watchlist[0]
+		if tempvar :
+			self.XSecButton.config(relief=tki.SUNKEN)
+		else :
+			self.XSecButton.config(relief=tki.RAISED)
+		try :
+			logging.debug("Sending graph state change signal ToggleXSec().")
+			self.PlotDataQ.put(None)
+		except Exception as detail :
+			logging.error("Failed to send graph state change signal: %s"%detail)
+
+	def NewCostMax(self,NewCMax) :
+		with self.watchlock :
+			self.watchlist[2][1] = NewCMax
+		try :
+			logging.debug("Sending graph state change signal NewCostMax().")
+			self.PlotDataQ.put(None)
+		except Exception as detail :
+			logging.error("Failed to send graph state change signal: %s"%detail)
+
+	def NewCostSelect(self,*_) :
+		with self.watchlock :
+			tempvar = self.watchlist[0]
+			self.watchlist[2][0] = self.GetCostSelect()
+		if not tempvar :
+			try :
+				logging.debug("Sending graph state change signal NewCostSelect().")
+				self.PlotDataQ.put(None)
+			except Exception as detail :
+				logging.error("Failed to send graph state change signal: %s"%detail)
+
+	def NewMaxSamps(self,*_) :
+		with self.watchlock :
+			self.watchlist[1][1] = self.GetMaxTraining()
+		try :
+			logging.debug("Sending graph state change signal NewMaxSamps().")
+			self.PlotDataQ.put(None)
+		except Exception as detail :
+			logging.error("Failed to send graph state change signal: %s"%detail)
 
 ################### Main Program ################### 
 
@@ -317,7 +371,7 @@ if __name__ == "__main__" :
 
 	root = tki.Tk()
 	root.wm_title("Learning Curve Analysis")
-	icon_image = tki.Image("photo",file=r"./MainGUI.gif")
+	icon_image = tki.Image("photo",file=r".\MainGUI.gif")
 	root.tk.call('wm','iconphoto',root._w,icon_image)
 	MainWinHan = LearningCurveAppMainGUI(root,**params)
 	root.mainloop()

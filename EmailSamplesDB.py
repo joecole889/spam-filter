@@ -17,6 +17,7 @@ import logging
 from TempDB import TempDB
 import time
 import cPickle
+import threading
 
 class EmailSamplesDB :
 	DB_Connect = None
@@ -25,6 +26,7 @@ class EmailSamplesDB :
 
 	def __init__(self,sqlcmdpath,pragmacmdpath,tempsqlcmdpath,**params) :
 		self.DBpath = None
+		self.DBlock = threading.Lock()
 		self.params['CommitFreq'] = 200
 		self.params['TempDBCMDs'] = tempsqlcmdpath
 		self.params['MaxCountFrac'] = 0.003
@@ -52,17 +54,22 @@ class EmailSamplesDB :
 		if self.DB_Connect is not None :
 			self.DB_Cursor = None
 			self.DB_Connect.close()
+			self.DBlock.release()
 		return
 
 	def ConnectDB(self,DBpath) :
 		try :
+			assert self.DB_Connect is None, "Need to close previous connection first."
+			got_lock = self.DBlock.acquire(False)
+			assert got_lock, "Database is in use, couldn't get the lock."
 			self.DB_Connect = sqlite3.connect(DBpath)
 			for cmd in self.DBSetup.values() :
 				self.DB_Connect.execute(cmd)
 			self.DB_Cursor = self.DB_Connect.cursor()
 			self.DBpath = DBpath
-		except :
-			logging.error("Unable to connect to database at %s"%DBpath)
+		except Exception as detail :
+			logging.error("Unable to connect to database at %s: %s"%(DBpath,detail))
+			self.DisconnectDB()
 		return
 
 	def DisconnectDB(self) :
@@ -74,6 +81,7 @@ class EmailSamplesDB :
 				self.DB_Connect = None
 			else :
 				logging.info("No database to disconnect.")
+			self.DBlock.release()
 		except Exception as detail :
 			logging.error("Failed to disconnect the database: %s"%detail)
 		return
@@ -530,17 +538,15 @@ class EmailSamplesDB :
 
 if __name__ == "__main__" :
 	logging.basicConfig(level=logging.INFO)
-	aa = EmailSamplesDB(r"./EmailSamplesDB_SQL.json",
-						r"./DBSetup_SQL.json",
-						r"./TempDB_SQL.json")
-	aa.ConnectDB(r"EmailSampleTestDB.sqlite3")
+	aa = EmailSamplesDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\EmailSamplesDB_SQL.json",
+						r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\DBSetup_SQL.json")
+	aa.ConnectDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\tester2.sqlite3")
 	print "Creating fresh database"
 	aa.CreateDB()
 	print "Adding good email messages"
-	#pdb.set_trace()
-	aa.AddToDB(r"./EmailSamples/easy_ham","Legitimate Email",[.6,.2,.2])
+	aa.AddToDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\EmailSamples\easy_ham","Legitimate Email",[.6,.2,.2])
 	print "Adding spam email messages"
-	aa.AddToDB(r"./EmailSamples/spam",1,[.6,.2,.2])
+	aa.AddToDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\EmailSamples\spam",1,[.6,.2,.2])
 	print "Creating fresh dictionary"
 	DictRef = aa.CreateDict('My first dictionary')
 	print "Updating word histograms"
@@ -549,19 +555,19 @@ if __name__ == "__main__" :
 	WordListRef = aa.CreateWordList("Test word list",DictRef)
 	print "Updating the word list"
 	aa.UpdateWordList(WordListRef)
-	#print "Loading a word list from file"
-	#dict_id = aa.LoadWords(r"C:\Users\jcole119213\Documents\Python Scripts\vocab.txt")
-	#list_id = aa.CreateWordList("Words from vocab.txt",dict_id)
-	#aa.UpdateWordList(list_id,False)
+	print "Loading a word list from file"
+	dict_id = aa.LoadWords(r"C:\Users\jcole119213\Documents\Python Scripts\vocab.txt")
+	list_id = aa.CreateWordList("Words from vocab.txt",dict_id)
+	aa.UpdateWordList(list_id,False)
 	print "Making the feature vectors"
 	start_time = time.time()
 	aa.MakeFeatureVecs(WordListRef,"SelectBodies")
 	elapsed_time = time.time() - start_time
 	print "Elapsed time:",elapsed_time,'s'
-	#start_time = time.time()
-	#aa.MakeFeatureVecs(list_id,"SelectBodies")
-	#elapsed_time = time.time() - start_time
-	#print "Elapsed time:",elapsed_time,'s'
+	start_time = time.time()
+	aa.MakeFeatureVecs(list_id,"SelectBodies")
+	elapsed_time = time.time() - start_time
+	print "Elapsed time:",elapsed_time,'s'
 	#print "Write a word list to a file"
 	#FileName = r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\TestDict.txt"
 	#aa.WriteWords("wordlist0",FileName)
