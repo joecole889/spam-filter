@@ -31,7 +31,7 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.PauseLock = threading.Lock()
 		self.PlotDataQ = Queue.Queue()
 		self.datastore = []
-		self.watchlist = [False,[600,1800],[1,3]]
+		self.watchlist = [False,[600,-1],[-1,-1]]
 		self.DBpath = None
 
 		tki.Frame.__init__(self, root)
@@ -67,19 +67,14 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.StartPlotWorker()
 		return
 
-	def PrepareExit(self) :
-		self.LearningCurveCanvas.get_tk_widget().destroy()
-		self.toolbar.destroy()
-		self.root.destroy()
-		return
-
+# Functions to define the GUI
 	def DefineMenuBar(self, parent=None) :
 		menubar = tki.Menu(parent)
 
 		filemenu = tki.Menu(menubar, tearoff=0)
 		filemenu.add_command(label="New Database...",command=self.NewDB)
 		filemenu.add_command(label="Open Database...", command=self.OpenDB)
-		filemenu.add_command(label="Close Database...", command=self.CloseDB)
+		filemenu.add_command(label="Close Database", command=self.CloseDB)
 		filemenu.add_separator()
 		filemenu.add_command(label="Load Word List from File...")
 		filemenu.add_command(label="Save Word List to File...")
@@ -103,46 +98,6 @@ class LearningCurveAppMainGUI(tki.Frame) :
 
 		return menubar
 
-	def NewDB(self) :
-		filename = tkFileDialog.asksaveasfilename(**self.file_opt)
-		self.DBpath = filename
-		logging.debug('Connecting to database at %s'%filename)
-		self.DBobj.ConnectDB(filename)
-		logging.debug('Result: %s'%self.DBobj.DB_Connect)
-		try :
-			logging.debug('Creating fresh database at %s'%filename)
-			self.DBobj.CreateDB()
-		finally :
-			logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
-			self.DBobj.DisconnectDB()
-			logging.debug('Result: %s'%self.DBobj.DB_Connect)
-		return
-
-	def OpenDB(self) :
-		filename = tkFileDialog.askopenfilename(**self.file_opt)
-		self.DBpath = filename
-		WordLists = self.GetWordLists(filename)
-		self.UpdateWordListDropDown(WordLists)
-		return
-
-	def GetWordLists(self,filename) :
-		logging.debug('Connecting to database at %s'%filename)
-		self.DBobj.ConnectDB(filename)
-		logging.debug('Result: %s'%self.DBobj.DB_Connect)
-		try :
-			WordLists = self.DBobj.GetAvailableWordLists()
-		finally :
-			logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
-			self.DBobj.DisconnectDB()
-			logging.debug('Result: %s'%self.DBobj.DB_Connect)
-		return WordLists
-
-	def CloseDB(self) :
-		assert self.DBobj.DB_Connect is None, "Expected database connection to already be closed, but it wasn't"
-		self.DBPath = None
-		self.UpdateWordListDropDown(None)
-		return
-
 	def DefineInputTable(self,parent=None) :
 		InputGrid = tki.Frame(parent,padx=75,pady=50)
 
@@ -157,6 +112,8 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.MaxSamplesLab.grid(row=1,column=0)
 		self.MaxSamplesVal = tki.Entry(InputGrid,width=7)
 		self.MaxSamplesVal.insert(0,"1800")
+		with self.watchlock :
+			self.watchlist[1][1] = 1800
 		self.MaxSamplesVal.bind("<FocusOut>",self.NewMaxSamps)
 		self.MaxSamplesVal.bind("<Return>",self.NewMaxSamps)
 		self.MaxSamplesVal.grid(row=1,column=1,sticky=tki.W)
@@ -171,6 +128,7 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.CostListLab.grid(row=3,column=0)
 		self.CostListVal = tki.Entry(InputGrid,width=40)
 		self.CostListVal.insert(0,"0.1, 0.3, 1, 3")
+		# The above insert will be grabbed and added to the watchlist when the cost drop down is defined in DefinePlotTools()
 		self.CostListVal.bind("<FocusOut>",self.UpdateCostList)
 		self.CostListVal.bind("<Return>",self.UpdateCostList)
 		self.CostListVal.grid(row=3,column=1,sticky=tki.W)
@@ -215,22 +173,73 @@ class LearningCurveAppMainGUI(tki.Frame) :
 
 		return XSecButtonFrame
 
-	def UpdateCostList(self,_=None) :
-		Cs = self.GetCostList()
-		self.CostDropDown['menu'].delete(0,'end')
+# Function callbacks for GUI menu commands
+	def PrepareExit(self) :
+		self.LearningCurveCanvas.get_tk_widget().destroy()
+		self.toolbar.destroy()
+		self.root.destroy()
+		return
 
-		maxC = -1
+	def NewDB(self) :
+		filename = tkFileDialog.asksaveasfilename(**self.file_opt)
+		self.DBpath = filename
+		logging.debug('Connecting to database at %s'%filename)
+		self.DBobj.ConnectDB(filename)
+		logging.debug('Result: %s'%self.DBobj.DB_Connect)
+		try :
+			logging.debug('Creating fresh database at %s'%filename)
+			self.DBobj.CreateDB()
+		finally :
+			logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
+			self.DBobj.DisconnectDB()
+			logging.debug('Result: %s'%self.DBobj.DB_Connect)
+		return
+
+	def OpenDB(self) :
+		filename = tkFileDialog.askopenfilename(**self.file_opt)
+		self.DBpath = filename
+		WordLists = self.GetWordLists(filename)
+		self.UpdateWordListDropDown(WordLists)
+		return
+
+	def CloseDB(self) :
+		assert self.DBobj.DB_Connect is None, "Expected database connection to already be closed, but it wasn't"
+		self.DBPath = None
+		self.UpdateWordListDropDown(None)
+		return
+
+# Functions that update user drop down lists in the GUI
+	def UpdateCostList(self,_=None) :
+		CurrentCostSelection = self.CostListDropDownVar.get()
+		logging.debug("Current cost selection is %s"%CurrentCostSelection)
+
+		# Do the actual drop down menu update
+		Cs = self.GetCostList()
+		Cs.sort()
+		self.CostDropDown['menu'].delete(0,'end')
 		for ii,C in enumerate(Cs) :
-			if C>maxC : maxC = C
 			CostStr = str(C)
-			if ii == 0 :
-				self.CostListDropDownVar.set(CostStr)
 			self.CostDropDown['menu'].add_command(label=CostStr, command=tki._setit(self.CostListDropDownVar, CostStr))
 
+		# Check if it's possible to keep the previously selected cost
+		try :
+			ii = Cs.index(float(CurrentCostSelection))
+			NewCostSelection = Cs[ii]
+		except ValueError as detail :
+			logging.debug("New cost list doesn't contain the previous cost selection.")
+			NewCostSelection = Cs[0]
+		logging.debug("New cost selection is %s"%NewCostSelection)
+
+		# Grab the current graph state variables
 		with self.watchlock :
-			tempvar = self.watchlist[2][1]
-		if maxC != tempvar :
-			self.NewCostMax(maxC)
+			tempcost,tempcostmax = self.watchlist[2]
+		logging.debug("Cost watch values are: %f of %f"%(tempcost,tempcostmax))
+
+		# Trigger a graph update event if needed; only one of these will trigger a graph state change according to the xsec button status
+		if (Cs[-1] != tempcostmax) :
+			self.NewCostMax(Cs[-1])
+		if (NewCostSelection != tempcost) :
+			self.CostListDropDownVar.set(str(NewCostSelection))
 		return
 
 	def UpdateWordListDropDown(self,NewList) :
@@ -245,6 +254,69 @@ class LearningCurveAppMainGUI(tki.Frame) :
 
 		return
 
+# Functions to get user input from the GUI
+	def GetStep(self) :
+		stepstr = self.OutputStepVal.get()
+		try :
+			step = int(stepstr)
+			assert step>=0,"Number of training samples per step must be non-negative."
+		except ValueError as detail :
+			logging.error("Couldn't convert given step value %s to an integer: %s"%(stepstr,detail))
+			step = None
+		except AssertionError as detail :
+			logging.error(detail)
+			step = None
+		return step
+
+	def GetMaxTraining(self) :
+		maxsampstr = self.MaxSamplesVal.get()
+		try :
+			maxsamp = int(maxsampstr)
+			assert maxsamp>=0,"Maximum number of training samples must be non-negative."
+		except ValueError as detail :
+			logging.error("Couldn't convert given max sample value %s to an integer: %s"%(maxsampstr,detail))
+			maxsamp = None
+		except AssertionError as detail :
+			logging.error(detail)
+			maxsamp = None
+		return maxsamp
+
+	def GetCostList(self) :
+		CostListStr = self.CostListVal.get()
+		try :
+			Cs = [float(cost.strip()) for cost in CostListStr.split(',')]
+			assert all(cost >= 0 for cost in Cs),"The given cost values must be non-negative."
+		except ValueError as detail :
+			logging.error("Couldn't convert given cost list value %s to a list of floats: %s"%(CostListStr,detail))
+			Cs = None
+		except AssertionError as detail :
+			logging.error(detail)
+			Cs = None
+		return Cs
+
+	def GetCostSelect(self) :
+		coststr = self.CostListDropDownVar.get()
+		try :
+			cost = float(coststr)
+		except ValueError as detail :
+			logging.error("Couldn't convert selected cost value %s to a float: %s"%(coststr,detail))
+			cost = None
+		return cost
+
+# Functions to get information from the database for the GUI
+	def GetWordLists(self,filename) :
+		logging.debug('Connecting to database at %s'%filename)
+		self.DBobj.ConnectDB(filename)
+		logging.debug('Result: %s'%self.DBobj.DB_Connect)
+		try :
+			WordLists = self.DBobj.GetAvailableWordLists()
+		finally :
+			logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
+			self.DBobj.DisconnectDB()
+			logging.debug('Result: %s'%self.DBobj.DB_Connect)
+		return WordLists
+
+# Functions to start other threads
 	def Go(self,_=None) :
 		got_lock = self.PauseLock.acquire(False)
 		if got_lock :
@@ -271,48 +343,13 @@ class LearningCurveAppMainGUI(tki.Frame) :
 			TrainThread.start()
 		return
 	
-	def GetStep(self) :
-		stepstr = self.OutputStepVal.get()
-		try :
-			step = int(stepstr)
-		except ValueError as detail :
-			logging.error("Couldn't convert given step value %s to an integer: %s"%(stepstr,detail))
-			step = None
-		return step
-
-	def GetMaxTraining(self) :
-		maxsampstr = self.MaxSamplesVal.get()
-		try :
-			maxsamp = int(maxsampstr)
-		except ValueError as detail :
-			logging.error("Couldn't convert given max sample value %s to an integer: %s"%(maxsampstr,detail))
-			maxsamp = None
-		return maxsamp
-
-	def GetCostList(self) :
-		CostListStr = self.CostListVal.get()
-		try :
-			Cs = [float(cost.strip()) for cost in CostListStr.split(',')]
-		except ValueError as detail :
-			logging.error("Couldn't convert given cost list value %s to a list of floats: %s"%(CostListStr,detail))
-			Cs = None
-		return Cs
-
-	def GetCostSelect(self) :
-		coststr = self.CostListDropDownVar.get()
-		try :
-			cost = float(coststr)
-		except ValueError as detail :
-			logging.error("Couldn't convert selected cost value %s to a float: %s"%(coststr,detail))
-			cost = None
-		return cost
-
 	def StartPlotWorker(self) :
 		PlotThread = PlotWorker(self.PlotDataQ, self.datastore, self.ax, self.watchlist, self.watchlock)
 		PlotThread.daemon = True
 		PlotThread.start()
 		return
 
+# Functions to signal that graph changes are needed
 	def ToggleXSec(self) :
 		with self.watchlock :
 			self.watchlist[0] = tempvar = not self.watchlist[0]
@@ -328,32 +365,42 @@ class LearningCurveAppMainGUI(tki.Frame) :
 
 	def NewCostMax(self,NewCMax) :
 		with self.watchlock :
+			temp_xsec_state = self.watchlist[0]
 			self.watchlist[2][1] = NewCMax
-		try :
-			logging.debug("Sending graph state change signal NewCostMax().")
-			self.PlotDataQ.put(None)
-		except Exception as detail :
-			logging.error("Failed to send graph state change signal: %s"%detail)
+		if temp_xsec_state :
+			try :
+				logging.debug("Sending graph state change signal NewCostMax().")
+				self.PlotDataQ.put(None)
+			except Exception as detail :
+				logging.error("Failed to send graph state change signal: %s"%detail)
+		else :
+			logging.debug("No need to send graph state change signal from NewCostMax() due to cross section button state.")
 
 	def NewCostSelect(self,*_) :
 		with self.watchlock :
-			tempvar = self.watchlist[0]
+			temp_xsec_state = self.watchlist[0]
 			self.watchlist[2][0] = self.GetCostSelect()
-		if not tempvar :
+		if not temp_xsec_state :
 			try :
 				logging.debug("Sending graph state change signal NewCostSelect().")
 				self.PlotDataQ.put(None)
 			except Exception as detail :
 				logging.error("Failed to send graph state change signal: %s"%detail)
+		else :
+			logging.debug("No need to send graph state change signal from NewCostSelect() due to cross section button state.")
 
 	def NewMaxSamps(self,*_) :
 		with self.watchlock :
+			temp_xsec_state = self.watchlist[0]
 			self.watchlist[1][1] = self.GetMaxTraining()
-		try :
-			logging.debug("Sending graph state change signal NewMaxSamps().")
-			self.PlotDataQ.put(None)
-		except Exception as detail :
-			logging.error("Failed to send graph state change signal: %s"%detail)
+		if not temp_xsec_state :
+			try :
+				logging.debug("Sending graph state change signal NewMaxSamps().")
+				self.PlotDataQ.put(None)
+			except Exception as detail :
+				logging.error("Failed to send graph state change signal: %s"%detail)
+		else :
+			logging.debug("No need to send graph state change signal from NewMaxSamps() due to cross section button state.")
 
 ################### Main Program ################### 
 
