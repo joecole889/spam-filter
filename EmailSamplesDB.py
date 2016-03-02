@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
+Running this module as __main__ creates a feature vector database without using a GUI
+
 Created on Tue Feb 09 16:03:00 2016
 
-@author: JCole119213
+@author: Joseph R. Cole
 """
 
 #import pdb
@@ -20,11 +22,52 @@ import cPickle
 import threading
 
 class EmailSamplesDB :
+	"""
+	Controls the connection to the feature feature database.  In the future this will be implemented more
+	generically to serve as a base class that provides the interface to the LearningCurveAppMainGUI. A 
+	developer could then inherit from this class to connect to any given feature vector database.  Currently,
+	this class works with the email/spam feature vector database used in the tutorial.  All SQL commands are
+	placed in an external JSON file so that the queries do not need to be hard coded.
+	"""
 	DB_Connect = None
 	DB_Cursor = None
 	params = dict()
 
 	def __init__(self,sqlcmdpath,pragmacmdpath,tempsqlcmdpath,**params) :
+		"""
+		Load external data and parameters in preparation to work with a feature vector database.
+
+		sqlcmdpath -
+			json file with SQL commands for queries on the sqlite3 database
+		pragmacmdpath -
+			json file with PRAGMA commands for initializing the sqlite3 database
+		tempsqlcmdpath -
+			json file with SQL commands for queries on a temporary database when it is necessary to
+			read data/process it/write data back to the main database (using multiple cursors at the
+			same time doesn't seem to be supported in sqlite3)
+		params -
+			a dict() with parameters controlling creation of feature vectors and other configurable options
+			params['CommitFreq'] -
+				number of writes to add to the database journal before a commit when doing large blocks of writes
+			params['TempDBCMDs'] -
+				stores the tempsqlcmdpath for use with the temporary database when needed
+			params['MinCountFrac'] -
+				Used for creating the words lists against which feature vectors are created.
+				Minimum frequency of word occurance in the training set before the word is included in the word list
+				(specified as a fraction of the total number of words in the training set)
+			params['MaxCountFrac'] -
+				Used for creating the words lists against which feature vectors are created.
+				Maximum frequency of word occurance in the training set allowing the word to be included in the word list
+				(specified as a fraction of the total number of words in the training set)
+
+		shared class variables - 
+			self.DB_Connect - the sqlite database connection object
+			self.DB_Cursor - the sqlite database cursor object
+			self.DBpath - path to the current database file in use
+			self.DBlock - a lock on the database preventing other threads from accessing it
+			self.SQLCMDs - dict() containing all the available SQL commands
+			self.DBSetup - dict() containing all the available PRAGMA commands
+		"""
 		self.DBpath = None
 		self.DBlock = threading.Lock()
 		self.params['CommitFreq'] = 200
@@ -39,7 +82,6 @@ class EmailSamplesDB :
 			self.SQLCMDs = json.loads(SQLCMDStr)
 		except Exception as detail :
 			logging.error("Unable to load SQL commands from %s: %s"%(sqlcmdpath,detail))
-			exit()
 		try :
 			fhan = open(pragmacmdpath)
 			PragmaCMDStr = fhan.read()
@@ -47,7 +89,6 @@ class EmailSamplesDB :
 			self.DBSetup = json.loads(PragmaCMDStr)
 		except Exception as detail :
 			logging.error("Unable to load PRAGMA commands from %s: %s"%(pragmacmdpath,detail))
-			exit()
 		return
 
 	def __del__(self) :
