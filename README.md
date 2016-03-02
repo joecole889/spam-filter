@@ -12,4 +12,6 @@ algorithm.
 More generally, the program demonstrates correct use of learning curves to optimize the
 training of the SVM using cross-validation data.
 
-Upcoming improvements include completion of the GUI interface and better documentation!
+Upcoming improvements include completion of the GUI interface!
+
+Better documentation is started and under development.  See the index.rst file to start.
