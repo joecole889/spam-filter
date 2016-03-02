@@ -1,0 +1,700 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>LearningCurveAppMainGUI &mdash; LearningCurveApp 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="../about.html" />
+    <link rel="top" title="LearningCurveApp 1.0 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">LearningCurveApp 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for LearningCurveAppMainGUI</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Created on Wed Jan 27 16:24:00 2016</span>
+
+<span class="sd">@author: Joseph R. Cole</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c">#import pdb</span>
+<span class="kn">import</span> <span class="nn">argparse</span>
+<span class="kn">import</span> <span class="nn">matplotlib</span>
+<span class="n">matplotlib</span><span class="o">.</span><span class="n">use</span><span class="p">(</span><span class="s">&#39;TkAgg&#39;</span><span class="p">)</span>
+<span class="kn">from</span> <span class="nn">matplotlib.backends.backend_tkagg</span> <span class="kn">import</span> <span class="n">FigureCanvasTkAgg</span><span class="p">,</span> <span class="n">NavigationToolbar2TkAgg</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="kn">as</span> <span class="nn">plt</span>
+<span class="kn">import</span> <span class="nn">tkFileDialog</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">from</span> <span class="nn">EmailSamplesDB</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">sklearn.svm</span> <span class="kn">import</span> <span class="n">SVC</span>
+<span class="kn">import</span> <span class="nn">threading</span>
+<span class="kn">from</span> <span class="nn">TrainSVMs</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">PlotWorker</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="k">try</span> <span class="p">:</span>
+	<span class="kn">import</span> <span class="nn">Tkinter</span> <span class="kn">as</span> <span class="nn">tki</span>
+<span class="k">except</span> <span class="ne">ImportError</span> <span class="p">:</span>
+	<span class="kn">import</span> <span class="nn">tkinter</span> <span class="kn">as</span> <span class="nn">tki</span>
+
+<div class="viewcode-block" id="LearningCurveAppMainGUI"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI">[docs]</a><span class="k">class</span> <span class="nc">LearningCurveAppMainGUI</span><span class="p">(</span><span class="n">tki</span><span class="o">.</span><span class="n">Frame</span><span class="p">)</span> <span class="p">:</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Design and logic for the main GUI of the learning curve application</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">root</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Initialize the main GUI and shared variables for other threads.</span>
+
+<span class="sd">		root - a parent object from Tkinter in which to draw the main GUI</span>
+
+<span class="sd">		params - a dict() that allow the user to pass in parameters</span>
+<span class="sd">			params[&#39;sqlpath&#39;] -</span>
+<span class="sd">				path to a json file with SQL commands for the main database</span>
+<span class="sd">			params[&#39;pragmapath&#39;] -</span>
+<span class="sd">				path to a json file with PRAGMA commands for the main database</span>
+<span class="sd">			params[&#39;tempsqlpath&#39;] -</span>
+<span class="sd">				path to a json file with SQL commands for a temporary database</span>
+<span class="sd">			params[&#39;initialdir&#39;] -</span>
+<span class="sd">				a directory in which to start looking for a database file</span>
+
+<span class="sd">		variables shared between threads -</span>
+<span class="sd">			self.watchlock -</span>
+<span class="sd">				a lock to protect variables watched by the PlotWorker thread</span>
+<span class="sd">			self.watchlist -</span>
+<span class="sd">				a list of values watched by the PlotWorker thread to control the state of the Plot</span>
+<span class="sd">				all communication with the thread is accomplished by putting values on the PlotDataQ</span>
+<span class="sd">				self.watchlist[0] -</span>
+<span class="sd">					switches the plot x-axis between # training samples (false) and</span>
+<span class="sd">					the cost or regularization parameters tried (true)</span>
+<span class="sd">				self.watchlist[1][0] -</span>
+<span class="sd">					location where a learning curve cross section is shown when watchlist[0] is true</span>
+<span class="sd">				self.watchlist[1][1] -</span>
+<span class="sd">					maximum extent of the # of training samples axis if watchlist[0] is false</span>
+<span class="sd">				self.watchlist[2][0] -</span>
+<span class="sd">					cost or regularization value for the displayed learning curve when watchlist[0] is false</span>
+<span class="sd">				self.watchlist[2][1] -</span>
+<span class="sd">					maximum extent of the cost/regularization axis if watchlist[0] is true</span>
+<span class="sd">			self.datastore -</span>
+<span class="sd">				a list of data tuples with the scores of trained solutions to be plotted as</span>
+<span class="sd">				learning curves</span>
+<span class="sd">			self.PlotDataQ -</span>
+<span class="sd">				a Queue to use for interacting with the PlotWorker thread</span>
+<span class="sd">			self.DBpath -</span>
+<span class="sd">				path to the current feature vector database</span>
+<span class="sd">			self.PauseLock - </span>
+<span class="sd">				A lock to prevent multiple CPU heavy threads from starting at once.</span>
+<span class="sd">				all CPU heavy threads must be given this lock in the acquired state,</span>
+<span class="sd">				releae the lock at the end of computations, and provide a stopping function</span>
+<span class="sd">				to be attached to the Stop button in the GUI</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">params</span> <span class="o">=</span> <span class="n">params</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">PauseLock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span> <span class="o">=</span> <span class="n">Queue</span><span class="o">.</span><span class="n">Queue</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">datastore</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span> <span class="o">=</span> <span class="p">[</span><span class="bp">False</span><span class="p">,[</span><span class="mi">600</span><span class="p">,</span><span class="o">-</span><span class="mi">1</span><span class="p">],[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span> <span class="o">=</span> <span class="bp">None</span>
+
+		<span class="n">tki</span><span class="o">.</span><span class="n">Frame</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">root</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">root</span> <span class="o">=</span> <span class="n">root</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">pack</span><span class="p">()</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">MenuBar</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DefineMenuBar</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+		<span class="n">root</span><span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="n">menu</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">MenuBar</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">InputPane</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Frame</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">InputPane</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">LEFT</span><span class="p">,</span><span class="n">expand</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span><span class="n">fill</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">BOTH</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">InputGrid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DefineInputTable</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">InputPane</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">InputGrid</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">TOP</span><span class="p">,</span><span class="n">fill</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">X</span><span class="p">,</span><span class="n">expand</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">InputButtons</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DefineButtons</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">InputPane</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">InputButtons</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">BOTTOM</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">OutputPane</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Frame</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">OutputPane</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">LEFT</span><span class="p">,</span><span class="n">expand</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span><span class="n">fill</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">BOTH</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">LearningCurveCanvas</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DefinePlotCanvas</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">OutputPane</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">PlotTools</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DefinePlotTools</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">LearningCurveCanvas</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">OutputPane</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CrossSectionButton</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DefineXSecButton</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">OutputPane</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">PlotTools</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">fill</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">X</span><span class="p">,</span><span class="n">expand</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">TOP</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">LearningCurveCanvas</span><span class="o">.</span><span class="n">get_tk_widget</span><span class="p">()</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">fill</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">BOTH</span><span class="p">,</span><span class="n">expand</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">TOP</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CrossSectionButton</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">TOP</span><span class="p">,</span><span class="n">pady</span><span class="o">=</span><span class="mi">25</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">file_opt</span> <span class="o">=</span> <span class="p">{}</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">file_opt</span><span class="p">[</span><span class="s">&#39;initialdir&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s">&#39;initialdir&#39;</span><span class="p">]</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">file_opt</span><span class="p">[</span><span class="s">&#39;filetypes&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[(</span><span class="s">&#39;database files&#39;</span><span class="p">,</span><span class="s">&#39;.sqlite3&#39;</span><span class="p">),(</span><span class="s">&#39;all files&#39;</span><span class="p">,</span><span class="s">&#39;.*&#39;</span><span class="p">)]</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">file_opt</span><span class="p">[</span><span class="s">&#39;title&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Select a email database file or create a new one&#39;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span> <span class="o">=</span> <span class="n">EmailSamplesDB</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;sqlpath&#39;</span><span class="p">],</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;pragmapath&#39;</span><span class="p">],</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;tempsqlpath&#39;</span><span class="p">])</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">StartPlotWorker</span><span class="p">()</span>
+		<span class="k">return</span>
+
+<span class="c"># Functions to define the GUI</span>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.DefineMenuBar"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.DefineMenuBar">[docs]</a>	<span class="k">def</span> <span class="nf">DefineMenuBar</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Define the menu bar for the main GUI including file, edit, and help menus</span>
+<span class="sd">		Set the commands for callbacks when any of the available options is selected</span>
+
+<span class="sd">		parent - a reference to the frame of the main GUI</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">menubar</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Menu</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
+
+		<span class="n">filemenu</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Menu</span><span class="p">(</span><span class="n">menubar</span><span class="p">,</span> <span class="n">tearoff</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;New Database...&quot;</span><span class="p">,</span><span class="n">command</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">NewDB</span><span class="p">)</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Open Database...&quot;</span><span class="p">,</span> <span class="n">command</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">OpenDB</span><span class="p">)</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Close Database&quot;</span><span class="p">,</span> <span class="n">command</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">CloseDB</span><span class="p">)</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_separator</span><span class="p">()</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Load Word List from File...&quot;</span><span class="p">)</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Save Word List to File...&quot;</span><span class="p">)</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_separator</span><span class="p">()</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Save SVM&quot;</span><span class="p">)</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Save SVM as...&quot;</span><span class="p">)</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_separator</span><span class="p">()</span>
+		<span class="n">filemenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Exit&quot;</span><span class="p">,</span> <span class="n">command</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">PrepareExit</span><span class="p">)</span>
+		<span class="n">menubar</span><span class="o">.</span><span class="n">add_cascade</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;File&quot;</span><span class="p">,</span> <span class="n">menu</span><span class="o">=</span><span class="n">filemenu</span><span class="p">)</span>
+
+		<span class="n">editmenu</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Menu</span><span class="p">(</span><span class="n">menubar</span><span class="p">,</span> <span class="n">tearoff</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+		<span class="n">editmenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Add Samples to DB...&quot;</span><span class="p">)</span>
+		<span class="n">editmenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Add Dictionary to DB...&quot;</span><span class="p">)</span>
+		<span class="n">editmenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Select Words for List...&quot;</span><span class="p">)</span>
+		<span class="n">editmenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Set SQL Command Paths...&quot;</span><span class="p">)</span>
+		<span class="n">menubar</span><span class="o">.</span><span class="n">add_cascade</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Edit&quot;</span><span class="p">,</span> <span class="n">menu</span><span class="o">=</span><span class="n">editmenu</span><span class="p">)</span>
+
+		<span class="n">helpmenu</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Menu</span><span class="p">(</span><span class="n">menubar</span><span class="p">,</span> <span class="n">tearoff</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+		<span class="n">helpmenu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;About...&quot;</span><span class="p">)</span>
+		<span class="n">menubar</span><span class="o">.</span><span class="n">add_cascade</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="s">&quot;Help&quot;</span><span class="p">,</span> <span class="n">menu</span><span class="o">=</span><span class="n">helpmenu</span><span class="p">)</span>
+
+		<span class="k">return</span> <span class="n">menubar</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.DefineInputTable"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.DefineInputTable">[docs]</a>	<span class="k">def</span> <span class="nf">DefineInputTable</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Initialize the left plane of the GUI</span>
+<span class="sd">		primarily entry boxes and drop down lists to control which machine learning solutions to test</span>
+
+<span class="sd">		parent - a reference to the frame of the main GUI</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">InputGrid</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Frame</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="n">padx</span><span class="o">=</span><span class="mi">75</span><span class="p">,</span><span class="n">pady</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">WordListsLab</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Label</span><span class="p">(</span><span class="n">InputGrid</span><span class="p">,</span><span class="n">text</span><span class="o">=</span><span class="s">&quot;Word List Selection&quot;</span><span class="p">,</span><span class="n">anchor</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">E</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span><span class="n">padx</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">WordListsLab</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span><span class="n">column</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">WordListsVar</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">StringVar</span><span class="p">(</span><span class="n">InputGrid</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">WordListsVal</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">OptionMenu</span><span class="p">(</span><span class="n">InputGrid</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">WordListsVar</span><span class="p">,</span><span class="bp">None</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">UpdateWordListDropDown</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">WordListsVal</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span><span class="n">column</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="n">sticky</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">W</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">MaxSamplesLab</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Label</span><span class="p">(</span><span class="n">InputGrid</span><span class="p">,</span><span class="n">text</span><span class="o">=</span><span class="s">&quot;Max Samples&quot;</span><span class="p">,</span><span class="n">anchor</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">E</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span><span class="n">padx</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">MaxSamplesLab</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="n">column</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">MaxSamplesVal</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Entry</span><span class="p">(</span><span class="n">InputGrid</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+		<span class="c"># TODO: pass in a params dict to initialize these hard coded starting values</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">MaxSamplesVal</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="s">&quot;1800&quot;</span><span class="p">)</span>
+		<span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1800</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">MaxSamplesVal</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="s">&quot;&lt;FocusOut&gt;&quot;</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">NewMaxSamps</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">MaxSamplesVal</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="s">&quot;&lt;Return&gt;&quot;</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">NewMaxSamps</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">MaxSamplesVal</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="n">column</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="n">sticky</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">W</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">OutputStepLab</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Label</span><span class="p">(</span><span class="n">InputGrid</span><span class="p">,</span><span class="n">text</span><span class="o">=</span><span class="s">&quot;Output Step Size&quot;</span><span class="p">,</span><span class="n">anchor</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">E</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span><span class="n">padx</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">OutputStepLab</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span><span class="n">column</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">OutputStepVal</span><span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Entry</span><span class="p">(</span><span class="n">InputGrid</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+		<span class="c"># TODO: pass in a params dict to initialize these hard coded starting values</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">OutputStepVal</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="s">&quot;600&quot;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">OutputStepVal</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span><span class="n">column</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="n">sticky</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">W</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostListLab</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Label</span><span class="p">(</span><span class="n">InputGrid</span><span class="p">,</span><span class="n">text</span><span class="o">=</span><span class="s">&quot;List of costs to try&quot;</span><span class="p">,</span><span class="n">anchor</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">E</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span><span class="n">padx</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostListLab</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span><span class="n">column</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostListVal</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Entry</span><span class="p">(</span><span class="n">InputGrid</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="mi">40</span><span class="p">)</span>
+		<span class="c"># TODO: pass in a params dict to initialize these hard coded starting values</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostListVal</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="s">&quot;0.1, 0.3, 1, 3&quot;</span><span class="p">)</span>
+		<span class="c"># The above insert will be grabbed and added to the watchlist when the cost drop down is defined in DefinePlotTools()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostListVal</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="s">&quot;&lt;FocusOut&gt;&quot;</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateCostList</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostListVal</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="s">&quot;&lt;Return&gt;&quot;</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">UpdateCostList</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostListVal</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span><span class="n">column</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="n">sticky</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">W</span><span class="p">)</span>
+
+		<span class="k">return</span> <span class="n">InputGrid</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.DefineButtons"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.DefineButtons">[docs]</a>	<span class="k">def</span> <span class="nf">DefineButtons</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Define Go and Stop buttons</span>
+
+<span class="sd">		parent - a reference to a parent frame</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">InputButtons</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Frame</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="n">pady</span><span class="o">=</span><span class="mi">25</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">GoButton</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Button</span><span class="p">(</span><span class="n">InputButtons</span><span class="p">,</span><span class="n">text</span><span class="o">=</span><span class="s">&quot;Generate</span><span class="se">\n</span><span class="s">Curves&quot;</span><span class="p">,</span><span class="n">justify</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span><span class="n">padx</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span><span class="n">command</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">Go</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">GoButton</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">LEFT</span><span class="p">,</span><span class="n">padx</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+
+		<span class="c"># No command is defined because this button must be configured whenever a CPU heavy thread is started</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">PauseButton</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Button</span><span class="p">(</span><span class="n">InputButtons</span><span class="p">,</span><span class="n">text</span><span class="o">=</span><span class="s">&quot;Stop</span><span class="se">\n</span><span class="s">Execution&quot;</span><span class="p">,</span><span class="n">justify</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span><span class="n">padx</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">PauseButton</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">LEFT</span><span class="p">,</span><span class="n">fill</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">Y</span><span class="p">,</span><span class="n">padx</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+
+		<span class="k">return</span> <span class="n">InputButtons</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.DefinePlotTools"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.DefinePlotTools">[docs]</a>	<span class="k">def</span> <span class="nf">DefinePlotTools</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">canvas</span><span class="p">,</span><span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Define the zoom and pan tools for the learning curve plot</span>
+
+<span class="sd">		parent - a reference to a parent frame</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">outcontrols</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Frame</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">toolbar</span> <span class="o">=</span> <span class="n">NavigationToolbar2TkAgg</span><span class="p">(</span><span class="n">canvas</span><span class="p">,</span><span class="n">outcontrols</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">toolbar</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">LEFT</span><span class="p">,</span><span class="n">fill</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">Y</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">toolbar</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostListDropDownVar</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">StringVar</span><span class="p">(</span><span class="n">outcontrols</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostListDropDownVar</span><span class="o">.</span><span class="n">trace</span><span class="p">(</span><span class="s">&quot;w&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">NewCostSelect</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostDropDown</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">OptionMenu</span><span class="p">(</span><span class="n">outcontrols</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">CostListDropDownVar</span><span class="p">,</span><span class="bp">None</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">UpdateCostList</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostDropDown</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">side</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">RIGHT</span><span class="p">,</span><span class="n">fill</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">Y</span><span class="p">)</span>
+
+		<span class="k">return</span> <span class="n">outcontrols</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.DefinePlotCanvas"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.DefinePlotCanvas">[docs]</a>	<span class="k">def</span> <span class="nf">DefinePlotCanvas</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Initialize the matplotlib canvas for plotting</span>
+
+<span class="sd">		parent - a reference to a parent frame</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">fighan</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">Figure</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fighan</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="mi">111</span><span class="p">)</span>
+		<span class="n">canvas</span> <span class="o">=</span> <span class="n">FigureCanvasTkAgg</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fighan</span><span class="p">,</span><span class="n">parent</span><span class="p">)</span>
+		<span class="n">canvas</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+
+		<span class="k">return</span> <span class="n">canvas</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.DefineXSecButton"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.DefineXSecButton">[docs]</a>	<span class="k">def</span> <span class="nf">DefineXSecButton</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Define a button to toggle the plot between a learning curve and a cross section of curves where</span>
+<span class="sd">		the x-axis becomes the cost or regularization values tried.  This is connected to self.watchlist[0]</span>
+
+<span class="sd">		parent - a reference to a parent frame</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">XSecButtonFrame</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Frame</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="n">pady</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">XSecButton</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Button</span><span class="p">(</span><span class="n">XSecButtonFrame</span><span class="p">,</span><span class="n">text</span><span class="o">=</span><span class="s">&quot;Cross Section&quot;</span><span class="p">,</span><span class="n">command</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">ToggleXSec</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">XSecButton</span><span class="o">.</span><span class="n">pack</span><span class="p">()</span>
+
+		<span class="k">return</span> <span class="n">XSecButtonFrame</span>
+
+<span class="c"># Function callbacks for GUI menu commands</span></div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.PrepareExit"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.PrepareExit">[docs]</a>	<span class="k">def</span> <span class="nf">PrepareExit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Clean up and close the GUI</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">LearningCurveCanvas</span><span class="o">.</span><span class="n">get_tk_widget</span><span class="p">()</span><span class="o">.</span><span class="n">destroy</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">toolbar</span><span class="o">.</span><span class="n">destroy</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">destroy</span><span class="p">()</span>
+		<span class="k">return</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.NewDB"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.NewDB">[docs]</a>	<span class="k">def</span> <span class="nf">NewDB</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Ask for a filename to create a new database file, then create a new database and initialize</span>
+<span class="sd">		the required tables.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">filename</span> <span class="o">=</span> <span class="n">tkFileDialog</span><span class="o">.</span><span class="n">asksaveasfilename</span><span class="p">(</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">file_opt</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span> <span class="o">=</span> <span class="n">filename</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Connecting to database at </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="n">filename</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">ConnectDB</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Result: </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">DB_Connect</span><span class="p">)</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Creating fresh database at </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="n">filename</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">CreateDB</span><span class="p">()</span>
+		<span class="k">finally</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Disconnecting database at </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">DB_Connect</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">DisconnectDB</span><span class="p">()</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Result: </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">DB_Connect</span><span class="p">)</span>
+		<span class="k">return</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.OpenDB"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.OpenDB">[docs]</a>	<span class="k">def</span> <span class="nf">OpenDB</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Open a feature vector database file, extract the available word lists that feature vectors can be</span>
+<span class="sd">		created against, and populate the word list drop down menu</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">filename</span> <span class="o">=</span> <span class="n">tkFileDialog</span><span class="o">.</span><span class="n">askopenfilename</span><span class="p">(</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">file_opt</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span> <span class="o">=</span> <span class="n">filename</span>
+		<span class="n">WordLists</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetWordLists</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">UpdateWordListDropDown</span><span class="p">(</span><span class="n">WordLists</span><span class="p">)</span>
+		<span class="k">return</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.CloseDB"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.CloseDB">[docs]</a>	<span class="k">def</span> <span class="nf">CloseDB</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Forgets the path the database currently in use.  Should not need to actually close the connection</span>
+<span class="sd">		because the connection should not be held open by any thread (that would block the database from</span>
+<span class="sd">		other threads).</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">DB_Connect</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&quot;Expected database connection to already be closed, but it wasn&#39;t&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DBPath</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">UpdateWordListDropDown</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+		<span class="k">return</span>
+
+<span class="c"># Functions that update user drop down lists in the GUI</span></div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.UpdateCostList"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.UpdateCostList">[docs]</a>	<span class="k">def</span> <span class="nf">UpdateCostList</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">_</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Update the drop down menu that is used to select the learning curve for the selected cost.</span>
+<span class="sd">		Trigger a graph state change event if necessary.</span>
+
+<span class="sd">		_ is an unused input that would contain metadata about a triggering event if this function is used as a widget&#39;s .bind() method</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">CurrentCostSelection</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">CostListDropDownVar</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Current cost selection is </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="n">CurrentCostSelection</span><span class="p">)</span>
+
+		<span class="c"># Do the actual drop down menu update</span>
+		<span class="n">Cs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetCostList</span><span class="p">()</span>
+		<span class="n">Cs</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CostDropDown</span><span class="p">[</span><span class="s">&#39;menu&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="s">&#39;end&#39;</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">ii</span><span class="p">,</span><span class="n">C</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">Cs</span><span class="p">)</span> <span class="p">:</span>
+			<span class="n">CostStr</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">C</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">CostDropDown</span><span class="p">[</span><span class="s">&#39;menu&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="n">CostStr</span><span class="p">,</span> <span class="n">command</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">_setit</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">CostListDropDownVar</span><span class="p">,</span> <span class="n">CostStr</span><span class="p">))</span>
+
+		<span class="c"># Check if it&#39;s possible to keep the previously selected cost</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">ii</span> <span class="o">=</span> <span class="n">Cs</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">CurrentCostSelection</span><span class="p">))</span>	<span class="c">#throws ValueError if the value isn&#39;t in the list</span>
+			<span class="n">NewCostSelection</span> <span class="o">=</span> <span class="n">Cs</span><span class="p">[</span><span class="n">ii</span><span class="p">]</span>
+		<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;New cost list doesn&#39;t contain the previous cost selection.&quot;</span><span class="p">)</span>
+			<span class="n">NewCostSelection</span> <span class="o">=</span> <span class="n">Cs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;New cost selection is </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="n">NewCostSelection</span><span class="p">)</span>
+
+		<span class="c"># Grab the current graph state variables</span>
+		<span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="p">:</span>
+			<span class="n">tempcost</span><span class="p">,</span><span class="n">tempcostmax</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Cost watch values are: </span><span class="si">%f</span><span class="s"> of </span><span class="si">%f</span><span class="s">&quot;</span><span class="o">%</span><span class="p">(</span><span class="n">tempcost</span><span class="p">,</span><span class="n">tempcostmax</span><span class="p">))</span>
+
+		<span class="c"># Trigger a graph update event if needed; only one of these will trigger a graph state change according to the xsec button status</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">Cs</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">tempcostmax</span><span class="p">)</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">NewCostMax</span><span class="p">(</span><span class="n">Cs</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">NewCostSelection</span> <span class="o">!=</span> <span class="n">tempcost</span><span class="p">)</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">CostListDropDownVar</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">NewCostSelection</span><span class="p">))</span>
+		<span class="k">return</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.UpdateWordListDropDown"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.UpdateWordListDropDown">[docs]</a>	<span class="k">def</span> <span class="nf">UpdateWordListDropDown</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">NewList</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Updates the values available in the word list drop down menu.</span>
+<span class="sd">		The user should select the word list to create feature vectors against</span>
+
+<span class="sd">		NewList - a list of tuples to define entrys for the word list drop down menu.  Each tuple is:</span>
+<span class="sd">		(&quot;table name in the database for the word list&quot;,&quot;a human readable name for the word list&quot;)</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">WordListsVal</span><span class="p">[</span><span class="s">&#39;menu&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="s">&#39;end&#39;</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">NewList</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">WordListsVar</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">NewList</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]))</span>
+			<span class="k">for</span> <span class="n">choice</span><span class="p">,</span><span class="n">readable</span> <span class="ow">in</span> <span class="n">NewList</span> <span class="p">:</span>
+				<span class="n">choicestr</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="p">(</span><span class="n">choice</span><span class="p">,</span><span class="n">readable</span><span class="p">)</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">WordListsVal</span><span class="p">[</span><span class="s">&#39;menu&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="n">choicestr</span><span class="p">,</span> <span class="n">command</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">_setit</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">WordListsVar</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">choice</span><span class="p">)))</span>
+		<span class="k">else</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">WordListsVar</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+
+		<span class="k">return</span>
+
+<span class="c"># Functions to get user input from the GUI</span></div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.GetStep"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.GetStep">[docs]</a>	<span class="k">def</span> <span class="nf">GetStep</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return the value form the step entry box widget after checking for errors</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">stepstr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">OutputStepVal</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">step</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">stepstr</span><span class="p">)</span>
+			<span class="k">assert</span> <span class="n">step</span><span class="o">&gt;=</span><span class="mi">0</span><span class="p">,</span><span class="s">&quot;Number of training samples per step must be non-negative.&quot;</span>
+		<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Couldn&#39;t convert given step value </span><span class="si">%s</span><span class="s"> to an integer: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="p">(</span><span class="n">stepstr</span><span class="p">,</span><span class="n">detail</span><span class="p">))</span>
+			<span class="n">step</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">except</span> <span class="ne">AssertionError</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">detail</span><span class="p">)</span>
+			<span class="n">step</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">return</span> <span class="n">step</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.GetMaxTraining"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.GetMaxTraining">[docs]</a>	<span class="k">def</span> <span class="nf">GetMaxTraining</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return the value form the max training samples entry box widget after checking for errors</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">maxsampstr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">MaxSamplesVal</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">maxsamp</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">maxsampstr</span><span class="p">)</span>
+			<span class="k">assert</span> <span class="n">maxsamp</span><span class="o">&gt;=</span><span class="mi">0</span><span class="p">,</span><span class="s">&quot;Maximum number of training samples must be non-negative.&quot;</span>
+		<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Couldn&#39;t convert given max sample value </span><span class="si">%s</span><span class="s"> to an integer: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="p">(</span><span class="n">maxsampstr</span><span class="p">,</span><span class="n">detail</span><span class="p">))</span>
+			<span class="n">maxsamp</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">except</span> <span class="ne">AssertionError</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">detail</span><span class="p">)</span>
+			<span class="n">maxsamp</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">return</span> <span class="n">maxsamp</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.GetCostList"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.GetCostList">[docs]</a>	<span class="k">def</span> <span class="nf">GetCostList</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return the value form the cost list entry box widget after checking for errors.</span>
+<span class="sd">		The user should input a comma separated list of non-negative floats</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">CostListStr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">CostListVal</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">Cs</span> <span class="o">=</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">cost</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span> <span class="k">for</span> <span class="n">cost</span> <span class="ow">in</span> <span class="n">CostListStr</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)]</span>
+			<span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">cost</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">cost</span> <span class="ow">in</span> <span class="n">Cs</span><span class="p">),</span><span class="s">&quot;The given cost values must be non-negative.&quot;</span>
+		<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Couldn&#39;t convert given cost list value </span><span class="si">%s</span><span class="s"> to a list of floats: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="p">(</span><span class="n">CostListStr</span><span class="p">,</span><span class="n">detail</span><span class="p">))</span>
+			<span class="n">Cs</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">except</span> <span class="ne">AssertionError</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">detail</span><span class="p">)</span>
+			<span class="n">Cs</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">return</span> <span class="n">Cs</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.GetCostSelect"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.GetCostSelect">[docs]</a>	<span class="k">def</span> <span class="nf">GetCostSelect</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return the value of the current cost selection as a float</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">coststr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">CostListDropDownVar</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">cost</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">coststr</span><span class="p">)</span>
+		<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Couldn&#39;t convert selected cost value </span><span class="si">%s</span><span class="s"> to a float: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="p">(</span><span class="n">coststr</span><span class="p">,</span><span class="n">detail</span><span class="p">))</span>
+			<span class="n">cost</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">return</span> <span class="n">cost</span>
+
+<span class="c"># Functions to get information from the database for the GUI</span></div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.GetWordLists"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.GetWordLists">[docs]</a>	<span class="k">def</span> <span class="nf">GetWordLists</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">filename</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Return a list of database tables with the feature vector word lists</span>
+
+<span class="sd">		filename - a path to the current database in use (usually self.DBpath)</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Connecting to database at </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="n">filename</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">ConnectDB</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Result: </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">DB_Connect</span><span class="p">)</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">WordLists</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">GetAvailableWordLists</span><span class="p">()</span>
+		<span class="k">finally</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Disconnecting database at </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">DB_Connect</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">DisconnectDB</span><span class="p">()</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Result: </span><span class="si">%s</span><span class="s">&#39;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="o">.</span><span class="n">DB_Connect</span><span class="p">)</span>
+		<span class="k">return</span> <span class="n">WordLists</span>
+
+<span class="c"># Functions to start other threads</span></div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.Go"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.Go">[docs]</a>	<span class="k">def</span> <span class="nf">Go</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">_</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Starts the CPU heavy thread that is used to train the algorithm instances based on user input from the GUI.</span>
+<span class="sd">		The first action must be to acquire the PauseLock.  The thread itself must release the PauseLock when it</span>
+<span class="sd">		finishes.</span>
+
+<span class="sd">		_ is an unused input that would contain metadata about a triggering event if this function is used as a widget&#39;s .bind() method</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">got_lock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">PauseLock</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">got_lock</span> <span class="p">:</span>
+			<span class="n">step</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetStep</span><span class="p">()</span>
+			<span class="k">if</span> <span class="n">step</span> <span class="ow">is</span> <span class="bp">None</span> <span class="p">:</span>
+				<span class="k">return</span>
+			<span class="n">Cs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetCostList</span><span class="p">()</span>
+			<span class="k">if</span> <span class="n">Cs</span> <span class="ow">is</span> <span class="bp">None</span> <span class="p">:</span>
+				<span class="k">return</span>
+			<span class="n">MaxTraining</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetMaxTraining</span><span class="p">()</span>
+			<span class="k">if</span> <span class="n">MaxTraining</span> <span class="ow">is</span> <span class="bp">None</span> <span class="p">:</span>
+				<span class="k">return</span>
+
+			<span class="n">listchoice</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">WordListsVar</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+
+			<span class="n">ParamSpace</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>	<span class="c">#parameter space to check with trained algorithm instances</span>
+			<span class="n">ParamSpace</span><span class="p">[</span><span class="s">&#39;Step&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">step</span>
+			<span class="n">ParamSpace</span><span class="p">[</span><span class="s">&#39;MaxTraining&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">MaxTraining</span>
+			<span class="n">ParamSpace</span><span class="p">[</span><span class="s">&#39;WordList&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">listchoice</span>
+			<span class="n">ParamSpace</span><span class="p">[</span><span class="s">&#39;Costs&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">Cs</span>
+			<span class="c"># Initialize the training thread</span>
+			<span class="n">TrainThread</span> <span class="o">=</span> <span class="n">TrainSVMs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">DBobj</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">PauseButton</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">PauseLock</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span><span class="p">,</span><span class="o">**</span><span class="n">ParamSpace</span><span class="p">)</span>
+			<span class="n">TrainThread</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>	<span class="c">#terminate the thread immediately if the main GUI is closed</span>
+			<span class="c"># Configure the Stop button in case the user gets cold feet; the thread must provide a stop function</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">PauseButton</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">command</span><span class="o">=</span><span class="n">TrainThread</span><span class="o">.</span><span class="n">stop</span><span class="p">)</span>
+			<span class="c"># Start the training thread</span>
+			<span class="n">TrainThread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+		<span class="k">return</span>
+	</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.StartPlotWorker"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.StartPlotWorker">[docs]</a>	<span class="k">def</span> <span class="nf">StartPlotWorker</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Start the thread that monitors the PlotDataQ and continuously updates the plot</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">PlotThread</span> <span class="o">=</span> <span class="n">PlotWorker</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">datastore</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span><span class="p">)</span>
+		<span class="n">PlotThread</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="n">PlotThread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+		<span class="k">return</span>
+
+<span class="c"># Functions to signal that graph changes are needed</span></div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.ToggleXSec"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.ToggleXSec">[docs]</a>	<span class="k">def</span> <span class="nf">ToggleXSec</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Toggles the state of the plot between a learning curve and a cross section of learning curves with</span>
+<span class="sd">		different cost/regularization values.  Sends a graph state change signal to the PlotWorker thread.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">tempvar</span> <span class="o">=</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+		<span class="k">if</span> <span class="n">tempvar</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">XSecButton</span><span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="n">relief</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">SUNKEN</span><span class="p">)</span>
+		<span class="k">else</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">XSecButton</span><span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="n">relief</span><span class="o">=</span><span class="n">tki</span><span class="o">.</span><span class="n">RAISED</span><span class="p">)</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Sending graph state change signal ToggleXSec().&quot;</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+		<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Failed to send graph state change signal: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="n">detail</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.NewCostMax"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.NewCostMax">[docs]</a>	<span class="k">def</span> <span class="nf">NewCostMax</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">NewCMax</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Updates the maximum cost watch variable for the PlotWorker() thread.  Sends the graph state change</span>
+<span class="sd">		signal if necessary depending on the state of the cross section button in the main GUI</span>
+
+<span class="sd">		NewCMax - a float to set as the new value of the maximum cost watch variable</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="p">:</span>
+			<span class="n">temp_xsec_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">NewCMax</span>
+		<span class="k">if</span> <span class="n">temp_xsec_state</span> <span class="p">:</span>
+			<span class="k">try</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Sending graph state change signal NewCostMax().&quot;</span><span class="p">)</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Failed to send graph state change signal: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="n">detail</span><span class="p">)</span>
+		<span class="k">else</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;No need to send graph state change signal from NewCostMax() due to cross section button state.&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.NewCostSelect"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.NewCostSelect">[docs]</a>	<span class="k">def</span> <span class="nf">NewCostSelect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="o">*</span><span class="n">_</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Updates the cost selection watch variable according to the user selection in the cost list drop down</span>
+<span class="sd">		menu.  Triggers a graph state change signal if necessary depending on the state of the cross section</span>
+<span class="sd">		button in the main GUI.</span>
+
+<span class="sd">		_ is a list of arguments that may be automatically provided because this function is used as a callback for a trace on a Tkinter StringVar.  However, the data is not used in this function for anything.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="p">:</span>
+			<span class="n">temp_xsec_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetCostSelect</span><span class="p">()</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">temp_xsec_state</span> <span class="p">:</span>
+			<span class="k">try</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Sending graph state change signal NewCostSelect().&quot;</span><span class="p">)</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Failed to send graph state change signal: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="n">detail</span><span class="p">)</span>
+		<span class="k">else</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;No need to send graph state change signal from NewCostSelect() due to cross section button state.&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="LearningCurveAppMainGUI.NewMaxSamps"><a class="viewcode-back" href="../apiref.html#LearningCurveAppMainGUI.LearningCurveAppMainGUI.NewMaxSamps">[docs]</a>	<span class="k">def</span> <span class="nf">NewMaxSamps</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="o">*</span><span class="n">_</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Updates the cost selection watch variable according to the user selection in the cost list drop down</span>
+<span class="sd">		menu.  Triggers a graph state change signal if necessary depending on the state of the cross section</span>
+<span class="sd">		button in the main GUI.</span>
+
+<span class="sd">		_ is a list of arguments that may be automatically provided because this function is used as a</span>
+<span class="sd">		callback for a trace on a Tkinter StringVar.  However, the data is not used in this function</span>
+<span class="sd">		for anything.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="p">:</span>
+			<span class="n">temp_xsec_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+			<span class="n">CurrentMaxSamp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+			<span class="n">NewMaxSamp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetMaxTraining</span><span class="p">()</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">NewMaxSamp</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">temp_xsec_state</span> <span class="ow">and</span> <span class="p">(</span><span class="n">NewMaxSamp</span> <span class="o">!=</span> <span class="n">CurrentMaxSamp</span><span class="p">):</span>
+			<span class="k">try</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Sending graph state change signal NewMaxSamps().&quot;</span><span class="p">)</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Failed to send graph state change signal: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="n">detail</span><span class="p">)</span>
+		<span class="k">else</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;No need to send graph state change signal from NewMaxSamps().&quot;</span><span class="p">)</span>
+
+<span class="c">###################################### Main Program ###################################### </span>
+</div></div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span> <span class="p">:</span>
+	<span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">)</span>
+	<span class="c">#pdb.set_trace()</span>
+
+	<span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s">&#39;Learning curve GUI for training SVMs to classify SPAM&#39;</span><span class="p">)</span>
+	<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--pragmapath&#39;</span><span class="p">,</span><span class="s">&#39;-p&#39;</span><span class="p">,</span>
+			            <span class="n">help</span><span class="o">=</span><span class="s">&#39;path to a json file with the PRAGMA commands for the database&#39;</span><span class="p">,</span>
+						<span class="n">default</span><span class="o">=</span><span class="s">&#39;.\DBSetup_SQL.json&#39;</span><span class="p">)</span>
+	<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--sqlpath&#39;</span><span class="p">,</span><span class="s">&#39;-s&#39;</span><span class="p">,</span>
+			            <span class="n">help</span><span class="o">=</span><span class="s">&#39;path to a json file with the SQL commands for the database&#39;</span><span class="p">,</span>
+						<span class="n">default</span><span class="o">=</span><span class="s">&#39;.\EmailSamplesDB_SQL.json&#39;</span><span class="p">)</span>
+	<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--tempsqlpath&#39;</span><span class="p">,</span><span class="s">&#39;-t&#39;</span><span class="p">,</span>
+			            <span class="n">help</span><span class="o">=</span><span class="s">&#39;path to a json file with the SQL commands for temp databases&#39;</span><span class="p">,</span>
+						<span class="n">default</span><span class="o">=</span><span class="s">&#39;.\TempDB_SQL.json&#39;</span><span class="p">)</span>
+	<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--initialdir&#39;</span><span class="p">,</span><span class="s">&#39;-d&#39;</span><span class="p">,</span>
+			            <span class="n">help</span><span class="o">=</span><span class="s">&#39;path to an initial directory to start looking for files&#39;</span><span class="p">,</span>
+						<span class="n">default</span><span class="o">=</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+	<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;--version&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;version&#39;</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s">&#39;</span><span class="si">%(prog)s</span><span class="s"> 1.0&#39;</span><span class="p">)</span>
+	<span class="n">paramsobj</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+	<span class="n">params</span> <span class="o">=</span> <span class="nb">vars</span><span class="p">(</span><span class="n">paramsobj</span><span class="p">)</span>
+
+	<span class="n">root</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Tk</span><span class="p">()</span>
+	<span class="n">root</span><span class="o">.</span><span class="n">wm_title</span><span class="p">(</span><span class="s">&quot;Learning Curve Analysis&quot;</span><span class="p">)</span>
+	<span class="n">icon_image</span> <span class="o">=</span> <span class="n">tki</span><span class="o">.</span><span class="n">Image</span><span class="p">(</span><span class="s">&quot;photo&quot;</span><span class="p">,</span><span class="nb">file</span><span class="o">=</span><span class="s">r&quot;.\MainGUI.gif&quot;</span><span class="p">)</span>
+	<span class="n">root</span><span class="o">.</span><span class="n">tk</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&#39;wm&#39;</span><span class="p">,</span><span class="s">&#39;iconphoto&#39;</span><span class="p">,</span><span class="n">root</span><span class="o">.</span><span class="n">_w</span><span class="p">,</span><span class="n">icon_image</span><span class="p">)</span>
+	<span class="n">MainWinHan</span> <span class="o">=</span> <span class="n">LearningCurveAppMainGUI</span><span class="p">(</span><span class="n">root</span><span class="p">,</span><span class="o">**</span><span class="n">params</span><span class="p">)</span>
+	<span class="n">root</span><span class="o">.</span><span class="n">mainloop</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">LearningCurveApp 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2016, Joseph R. Cole.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.3.
+    </div>
+  </body>
+</html>
