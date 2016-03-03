@@ -23,7 +23,7 @@ import threading
 
 class EmailSamplesDB :
 	"""
-	Controls the connection to the feature feature database.  In the future this will be implemented more
+	Controls the connection to the feature vector database.  In the future this will be implemented more
 	generically to serve as a base class that provides the interface to the LearningCurveAppMainGUI. A 
 	developer could then inherit from this class to connect to any given feature vector database.  Currently,
 	this class works with the email/spam feature vector database used in the tutorial.  All SQL commands are
@@ -47,6 +47,7 @@ class EmailSamplesDB :
 			same time doesn't seem to be supported in sqlite3)
 		params -
 			a dict() with parameters controlling creation of feature vectors and other configurable options
+
 			params['CommitFreq'] -
 				number of writes to add to the database journal before a commit when doing large blocks of writes
 			params['TempDBCMDs'] -
@@ -62,10 +63,15 @@ class EmailSamplesDB :
 
 		shared class variables - 
 			self.DB_Connect - the sqlite database connection object
+
 			self.DB_Cursor - the sqlite database cursor object
+
 			self.DBpath - path to the current database file in use
+
 			self.DBlock - a lock on the database preventing other threads from accessing it
+
 			self.SQLCMDs - dict() containing all the available SQL commands
+
 			self.DBSetup - dict() containing all the available PRAGMA commands
 		"""
 		self.DBpath = None
@@ -92,6 +98,10 @@ class EmailSamplesDB :
 		return
 
 	def __del__(self) :
+		"""
+		Automatically ensures the database connection is closed and the lock is released when all
+		references to this object are gone.
+		"""
 		if self.DB_Connect is not None :
 			self.DB_Cursor = None
 			self.DB_Connect.close()
@@ -99,9 +109,15 @@ class EmailSamplesDB :
 		return
 
 	def ConnectDB(self,DBpath) :
+		"""
+		Setup a connection to an sqlite3 feature vector database file. Remember to close immediately
+		once your read or write is complete or other threads won't be able to use the database.
+
+		DBpath - path to the database file to connect
+		"""
 		try :
 			assert self.DB_Connect is None, "Need to close previous connection first."
-			got_lock = self.DBlock.acquire(False)
+			got_lock = self.DBlock.acquire(False)	# Non blocking form of threading.Lock.acquire()
 			assert got_lock, "Database is in use, couldn't get the lock."
 			self.DB_Connect = sqlite3.connect(DBpath)
 			for cmd in self.DBSetup.values() :
@@ -113,7 +129,32 @@ class EmailSamplesDB :
 			self.DisconnectDB()
 		return
 
+	def ConnectDBblk(self,DBpath) :
+		"""
+		Setup a connection to an sqlite3 feature vector database file. Remember to close immediately
+		once your read or write is complete or other threads won't be able to use the database. This
+		is the same as ConnectDB() except that it blocks the thread and waits for the lock to be
+		released if the database is in use.
+
+		DBpath - path to the database file to connect
+		"""
+		try :
+			assert self.DB_Connect is None, "Need to close previous connection first."
+			self.DBlock.acquire()	# Blocking form of threading.Lock.acquire()
+			self.DB_Connect = sqlite3.connect(DBpath)
+			for cmd in self.DBSetup.values() :
+				self.DB_Connect.execute(cmd)
+			self.DB_Cursor = self.DB_Connect.cursor()
+			self.DBpath = DBpath
+		except Exception as detail :
+			logging.error("Unable to connect to database at %s: %s"%(DBpath,detail))
+			self.DisconnectDB()
+		return
+
 	def DisconnectDB(self) :
+		"""
+		Disconnect a database and release the lock.
+		"""
 		try :
 			if self.DB_Connect is not None :
 				self.DB_Cursor = None
@@ -128,6 +169,9 @@ class EmailSamplesDB :
 		return
 
 	def CreateDB(self) :
+		"""
+		Initialize the tables for a new database file.
+		"""
 		try :
 			self.DB_Cursor.execute(self.SQLCMDs['CreateClassTable'])
 			for ii,classname in enumerate(self.SQLCMDs['ClassesList']) :
@@ -149,19 +193,44 @@ class EmailSamplesDB :
 		return
 
 	def ResetDB(self) :
+		"""
+		Delete all the tables in a database.
+		"""
 		try :
 			self.DB_Cursor.execute(self.SQLCMDs['SelectDictTables'])
 			DictTables = self.DB_Cursor.fetchall()
 			for table in DictTables :
 				self.DB_Cursor.execute(self.SQLCMDs['DropTable']%table)
+
+			self.DB_Cursor.execute(self.SQLCMDs['SelectWordLists'])
+			WordListTables = self.DB_Cursor.fetchall()
+			for table in WordListTables :
+				self.DB_Cursor.execute(self.SQLCMDs['DropTable']%table[0])
+
 			for table in self.SQLCMDs['TableList'] :
 				self.DB_Cursor.execute(self.SQLCMDs['DropTable']%(table,))
+
 			self.DB_Connect.commit()
 		except Exception as detail:
 			logging.error("Failed to reset the database: %s"%detail.message)
 		return
 
 	def AddToDB(self,dirpath,classname,samp_distr_targ) :
+		"""
+		Add new sample emails to a database. No processing of the emails is done except to attempt
+		conversion to utf-8.
+
+		dirpath -
+			a path to a directory of email files to add to the database
+		classname -
+			a reference to the class of the samples in the given directory (legitimate email or spam)
+		samp_distr_targ -
+			a tuple containing the desired fraction of samples assigned to each set (training,cross
+			validation,test).  New samples are distributed to optimally match this desired distribution
+			based on the number of new samples provided and the current distribution between sets of 
+			samples already in the database. Each value in the tuple should be in the range [0,1], and
+			the total of all values in the tuple should be 1.
+		"""
 		CurSampleCount = self.GetSampleCount()
 		try :
 			if isinstance(classname,str) :
@@ -187,7 +256,7 @@ class EmailSamplesDB :
 					assert (HeaderSepPos != -1),'Unable to separate message body.'
 					head = emailstr[0:HeaderSepPos].decode('utf-8','ignore')
 					body = emailstr[HeaderSepPos+2:].decode('utf-8','ignore')
-					order = random.randrange(2**(32-1) - 1)
+					order = random.randrange(2**(32-1) - 1)	# a value assigned to help ensure all classes of samples are drawn randomly from the database
 					self.DB_Cursor.execute(self.SQLCMDs['InsertSample'],(ii+CurSampleCount,filename,head,body,classid,SetAssignments[ii],order))
 			self.DB_Connect.commit()
 		except TypeError as detail :
@@ -201,6 +270,12 @@ class EmailSamplesDB :
 		return
 
 	def CreateDict(self,readable_name) :
+		"""
+		Add a new dictionary table to the database.
+
+		readable_name - a human readable name to assign to the table that is saved alongside the automatically
+		generated name used in the database
+		"""
 		try :
 			self.DB_Cursor.execute(self.SQLCMDs['DictMax'])
 			NextKey = self.DB_Cursor.fetchone()[0]
@@ -218,6 +293,14 @@ class EmailSamplesDB :
 		return NextKey
 
 	def CreateWordList(self,readable_name,DictRef) :
+		"""
+		Add a new word list table to the database.
+
+		readable_name - a human readable name to assign to the table that is saved alongside the automatically
+		generated name used in the database
+		DictRef - a reference to the dictionary table in the database from which the words in this list are
+		taken
+		"""
 		try :
 			if isinstance(DictRef,str) :
 				DictName = DictRef
@@ -243,7 +326,13 @@ class EmailSamplesDB :
 			logging.error("Failed to create a new word list table: %s"%detail)
 		return NextKey
 
-	def WriteWords(self,WordListRef,FileName) : # Allows saving of a dictionary
+	def WriteWords(self,WordListRef,FileName) :
+		"""
+		Save a word list from the database out to a text file.
+
+		WordListRef - a reference to the word list table to save
+		FileName - the name (full path) of the file to save
+		"""
 		try :
 			if isinstance(WordListRef,str) :
 				ListName = WordListRef
@@ -273,7 +362,13 @@ class EmailSamplesDB :
 			logging.error("Failed to write the file %s: %s"%(FileName,detail))
 		return
 	
-	def LoadWords(self,FileName) : # Allows loading of a saved word list to a dictionary
+	def LoadWords(self,FileName) :
+		"""
+		Load a list of words from a plain text file. Each word should be on its own line. Then
+		create a dictionary table and a word list table in the database using these words.
+
+		FileName - the name (full path) of the file to load
+		"""
 		try :
 			fhan = open(FileName,'r')
 			Words = fhan.read()
@@ -295,6 +390,21 @@ class EmailSamplesDB :
 		return DictRef
 
 	def UpdateDict(self,DictRef,sqlcmdname) :
+		"""
+		Process samples in the training set to update a dictionary with words and their frequency of
+		occurance.
+
+		DictRef -
+			a reference to the dictionary table in the database from which the words in this list are
+			taken
+		sqlcmdname -
+			if calls to AddToDB() and UpdateDict() are interleaved, it is up to the SQL query used to
+			make sure that an email sample is not double counted in the dictionary histogram. This
+			parameter is a key to the SQLCMD dictionary so the user can update the SQL query used.
+			Samples used to create a dictionary are tracked in a separate table in the database.
+		"""
+		# TODO: Rewrite this function to avoid using a temporary database by using an SQL query
+		#       with LIMIT and OFFSET.  Test which method is faster.
 		try :
 			if isinstance(DictRef,str) :
 				DictName = DictRef
@@ -371,6 +481,17 @@ class EmailSamplesDB :
 		return
 
 	def UpdateWordList(self,WordListRef,WordFilter=True) :
+		"""
+		Update a word list whenever a dictionary has been changed. Word lists are connected to specific
+		dictionaries internally in the database, so it is not necessary to provide a dictionary reference.
+
+		WordListRef -
+			a reference to the word list table to save
+		WordFilter -
+			allows the user to control whether words in the dictionary should be excluded from
+			the list based on parameters provided as class attributes (True) or all words in the
+			dictionary should be added to the list (False)
+		"""
 		try :
 			if isinstance(WordListRef,str) :
 				ListName = WordListRef
@@ -400,6 +521,17 @@ class EmailSamplesDB :
 			self.DB_Connect.rollback()
 
 	def MakeFeatureVecs(self,WordListRef,sqlcmdname) :
+		"""
+		Create feature vectors against a given word list. Uses a FeatureVecGen object as an engine for
+		creating the feature vector given an email sample body.
+		
+		WordListRef -
+			a reference to the word list table to save
+		sqlcmdname -
+			this parameter is a key to the SQLCMD dictionary so the user can update the SQL query used
+			to select samples for which to create feature vectors. Typical usage would be to SELECT
+			all the available samples in the database for all classes.
+		"""
 		try :
 			if isinstance(WordListRef,str) :
 				ListName = WordListRef
@@ -442,9 +574,7 @@ class EmailSamplesDB :
 			CommitCount = 0
 			for sample_id,SampleBody in self.DB_Cursor.execute(self.SQLCMDs[sqlcmdname]) :
 				logging.debug("Working on: %d"%sample_id)
-				SampleWords = FeatureMaker.RegularizeWords(SampleBody)
-				SampleWords = FeatureMaker.StemWords(SampleWords)
-				featurevec = FeatureMaker.MarkWordPresence(SampleWords)
+				featurevec = FeatureMaker.MakeVec(SampleBody)
 				featureserial = buffer(cPickle.dumps(featurevec))
 				logging.debug("Inserting row to feature table")
 				if CommitCount != self.params['CommitFreq'] :
@@ -473,6 +603,13 @@ class EmailSamplesDB :
 		return
 
 	def GetSampleDistribution(self) :
+		"""
+		Return the fraction of samples in the database assigned to each set (training,cross validation,test)
+
+		Return values:
+			SetIDs - a list of the primary keys assigned to the sets in the database
+			SetDistr - a list of the fractions of samples assigned to each set
+		"""
 		try :
 			SetList = self.SQLCMDs['SetList']
 			SetIDs = [0,]*len(SetList)
@@ -488,6 +625,12 @@ class EmailSamplesDB :
 		return SetIDs,SetDistr
 
 	def GetSampleCount(self) :
+		"""
+		Return the number of samples in the database
+
+		Return values:
+			CurSampleCount - integer number of samples in the database
+		"""
 		try :
 			self.DB_Cursor.execute(self.SQLCMDs['SampleCount'])
 			CurSampleCount = self.DB_Cursor.fetchone()[0]
@@ -496,6 +639,12 @@ class EmailSamplesDB :
 		return CurSampleCount
 
 	def GetTrainSampleCount(self) :
+		"""
+		Return the number of samples in the training set
+
+		Return values:
+			CurSampleCount - integer number of samples in the training set
+		"""
 		try :
 			self.DB_Cursor.execute(self.SQLCMDs['SampleSetCount'],(0,))
 			CurSampleCount = self.DB_Cursor.fetchone()[0]
@@ -504,6 +653,13 @@ class EmailSamplesDB :
 		return CurSampleCount
 
 	def GetAvailableWordLists(self) :
+		"""
+		Return the word lists available in the database
+
+		Return values:
+			WordLists - a list of tuples with the available wordlists in the database where the SQL query
+			used controls the order of items in the tuple
+		"""
 		try :
 			self.DB_Cursor.execute(self.SQLCMDs['SelectWordLists'])
 			WordLists = self.DB_Cursor.fetchall()
@@ -512,6 +668,24 @@ class EmailSamplesDB :
 		return WordLists
 
 	def GetXY(self,WordListRef,SetID,Limit=None,Offset=0) :
+		"""
+		Return feature vectors and their classes. The order is controlled by the SQL query used, and there
+		is a value saved along with each sample to help randomize the mixture of classes returned.
+
+		WordListRef -
+			a reference to the word list table to save
+		SetID -
+			the primary key assigned to the set in the database for the requested feature vectors
+		Limit -
+			optional positive integer parameter to limit the number of feature vectors returned
+		Offset -
+			optional non-negative integer parameter to skip some number of feature vectors in the
+			database. If Limit is None then Offset is forced to be 0 regardless of the value provided.
+
+		Return values:
+			X - a list of the requested feature vectors
+			Y - a list of the classes associated with the returned feature vectors
+		"""
 		try :
 			if isinstance(WordListRef,str) :
 				self.DB_Cursor.execute(self.SQLCMDs['SelectWordListID'],(WordListRef,))
@@ -538,6 +712,21 @@ class EmailSamplesDB :
 		return X,Y
 
 	def AssignSamplesToSets(self,NumNewSamples,samp_distr_targ) :
+		"""
+		Create set assignments for a number of new samples to be added to the database (training, cross validation, or test)
+
+		NumNewSamples -
+			the number of new samples to add; a set assignment will be made for each new sample
+		samp_distr_targ -
+			a tuple containing the desired fraction of samples assigned to each set (training,cross
+			validation,test).  New samples are distributed to optimally match this desired distribution
+			based on the number of new samples provided and the current distribution between sets of 
+			samples already in the database. Each value in the tuple should be in the range [0,1], and
+			the total of all values in the tuple should be 1.
+
+		Return values:
+			SetAssignmentList - a list of set assignments for each new sample; len(SetAssignmentList) == NumNewSamples
+		"""
 		SetAssignmentList = []
 		(SetIDs,CurrentDistr) = self.GetSampleDistribution()
 		CurSampleCount = self.GetSampleCount()
@@ -547,7 +736,9 @@ class EmailSamplesDB :
 			x0[0] = NumNewSamples
 			x0 = tuple(x0)
 			constargs = (samp_distr_targ,NumNewSamples,CurSampleCount,CurrentDistr)
+			# boundary conditions - the new samples must be distributed to each set by fractions in the range [0,1]
 			bnds = ((0,1),(0,1),(0,1))
+			# constraints - the total of the distribution fractions must be equal to 1
 			cons = {'type':'eq','fun': lambda x: x[0]+x[1]+x[2]-1}
 			res = minimize(self.TargetDistrObj, x0, args=constargs,method='SLSQP',bounds=bnds,constraints=cons)
 			AddedDistr = [0]*NumSets
@@ -559,7 +750,7 @@ class EmailSamplesDB :
 			assert AddedDistr[-1]>=0,"Rounding problem calculating distribution of new samples into sets"
 			for ii,val in enumerate(AddedDistr) :
 				#print val
-				SetAssignmentList = SetAssignmentList + [SetIDs[ii]]*int(val)
+				SetAssignmentList.extend([SetIDs[ii]]*int(val))
 		except Exception as detail:
 			logging.critical("Failed to create set assignments: %s"%detail)
 			exit()
@@ -568,6 +759,37 @@ class EmailSamplesDB :
 
 	@staticmethod
 	def TargetDistrObj(x,t,newsamps,oldsamps,oldsetcounts) :
+		"""
+		Implements the equation to optimize for calculating how to distribute a given number of new samples between sets
+
+		.. math::
+
+			E = \\sum_{i=1}^3 (t_{i} - f_{i})^{2}
+
+		where
+
+		:math:`E` is the sample distribution sum of squares error
+
+		:math:`t_{i}` is the targeted fractional distribution of samples to set i
+
+		:math:`f_{i}` is the resulting fractional distribution of samples from a proposal to add a number of new samples to set i
+
+		and :math:`i` iterates over (training, cross validation, and test) sets
+		
+		t -
+			tuple of targeted distribution fractions; each value must be in the range [0,1] and the total must = 1
+		newsamps -
+			the total number of new samples to add to the database (integer)
+		oldsamps -
+			the total number of samples already in the database (integer)
+		oldsetcounts -
+			tuple of the (integer) counts of samples in each set for samples already in the database
+		newtotal -
+			the total number of samples that will be in the database once the new ones are added (integer)
+
+		Return values:
+			error - the sum of squares error between the targeted sample distribution and the proposed sample distribution
+		"""
 		error = 0
 		newtotal = newsamps+oldsamps
 		for ii in range(0,len(t)) :
@@ -575,7 +797,7 @@ class EmailSamplesDB :
 			error += val*val
 		return error
 
-################### Main Program ################### 
+###################################### Main Program ###################################### 
 
 if __name__ == "__main__" :
 	logging.basicConfig(level=logging.INFO)

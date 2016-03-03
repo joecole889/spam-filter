@@ -52,6 +52,7 @@ class LearningCurveAppMainGUI(tki.Frame) :
 			self.watchlist -
 				a list of values watched by the PlotWorker thread to control the state of the Plot
 				all communication with the thread is accomplished by putting values on the PlotDataQ
+
 				self.watchlist[0] -
 					switches the plot x-axis between # training samples (false) and
 					the cost or regularization parameters tried (true)
@@ -68,6 +69,9 @@ class LearningCurveAppMainGUI(tki.Frame) :
 				learning curves
 			self.PlotDataQ -
 				a Queue to use for interacting with the PlotWorker thread
+					contains 'None' signal to indicate a change of graph state, *or*
+
+					contains a data tuple with: (MachineLearningObject, NumberOfTrainingSamplesUsed, CostUsed, TrainingScore, CrossValidationScore)
 			self.DBpath -
 				path to the current feature vector database
 			self.PauseLock - 

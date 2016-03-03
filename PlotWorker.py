@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """
+This module implements a class derived from the Thread class in the threading module to encapsulate the
+execution of the PlotWorker thread.
+
 Created on Wed Feb 24 15:39:00 2016
 
 @author: JCole119213
@@ -14,6 +17,43 @@ import time
 
 class PlotWorker(threading.Thread) :
 	def __init__(self, PlotDataQ, datastore, ax, watchlist, watchlock) :
+		"""
+		Initialize references to variables shared with the main thread of execution in the LearningCurveApp
+		module
+
+		variables shared between threads -
+			self.PlotDataQ -
+				a Queue to use for interacting with the main thread
+					contains 'None' signal to indicate a change of graph state, *or*
+					contains a data tuple with: (MachineLearningObject, NumberOfTrainingSamplesUsed, CostUsed, TrainingScore, CrossValidationScore)
+			self.datastore -
+				a list of data tuples with the scores of trained solutions to be plotted as
+				learning curves
+			self.ax -
+				a reference to the matplotlib axes in the main GUI (where this thread will plot data)
+			self.watchlist -
+				a list of values updated by the main thread to control the state of the plot.
+				All communication between threads is accomplished by putting values on the PlotDataQ (None indicates the watchlist changed)
+
+					self.watchlist[0] -
+						switches the plot x-axis between # training samples (false) and
+						the cost or regularization parameters tried (true)
+					self.watchlist[1][0] -
+						location where a learning curve cross section is shown when watchlist[0] is true
+					self.watchlist[1][1] -
+						maximum extent of the # of training samples axis if watchlist[0] is false
+					self.watchlist[2][0] -
+						cost or regularization value for the displayed learning curve when watchlist[0] is false
+					self.watchlist[2][1] -
+						maximum extent of the cost/regularization axis if watchlist[0] is true
+			self.watchlock -
+				a lock to protect variables watched by the PlotWorker thread
+
+		Parameters:
+			self.params['RedrawDelay'] -
+				parameter to control the sleep time between redrawing the axes animating the graph lines; this
+				is needed because matplotlib is *not* technically thread safe
+		"""
 		super(PlotWorker,self).__init__()
 		self.PlotDataQ = PlotDataQ
 		self.datastore = datastore
@@ -24,10 +64,23 @@ class PlotWorker(threading.Thread) :
 
 		self.watchlist = watchlist
 		self.watchlock = watchlock
+		# TODO: make this configurable from and optional dictionary passed into this constructor
 		self.params = {'RedrawDelay':0.5}
 		return
 
 	def init_plot(self) :
+		"""
+		Setup the plot for the first time (runs with this thread is first started). Sets a callback executed
+		when a draw event occurs to store the background of the plot.
+
+		internal variables -
+			self.xdata -
+				x coordinates of the data to plot
+			self.ytdata -
+				y coordinates of the data to plot for the training score line
+			self.ycvdata -
+				y coordinate of the data to plot for the cross validation score line
+		"""
 		self.xdata = []
 		self.ytdata = []
 		self.ycvdata = []
@@ -44,10 +97,20 @@ class PlotWorker(threading.Thread) :
 		self.ax.figure.canvas.draw()
 
 	def update_background(self, _=None):
+		"""
+		Store the plot background (all the static elements) for more efficient line animations on top
+
+		_ is an unused argument that is automatically passed to the function when it is used as a draw event
+		based binding containing information about the triggering event (see init_plot())
+		"""
 		logging.debug("Storing background due to draw event.")
 		self.background = self.canvas.copy_from_bbox(self.ax.bbox)
 
 	def run(self) :
+		"""
+		Main execution loop for the PlotWorker thread; called when the main thread of execution starts
+		this thread. Blocks until data or a 'None' signal it put on the PlotDataQ from outside.
+		"""
 		while True :
 			try :
 				data_tup = self.PlotDataQ.get()
@@ -81,7 +144,9 @@ class PlotWorker(threading.Thread) :
 					self.PullDataFromStore(cost=c, xsec_on=x, m=m)
 					# 2) Redraw the plot axes and store the background
 					self.UpdateAxisLimits()
+					# 3) Sleep because matplotlib is not thread safe and it needs time to redraw
 					time.sleep(self.params['RedrawDelay'])
+					# 4) Animate the graph lines
 					self.DoLineAnimation()
 
 				end_t = time.time()
@@ -94,6 +159,22 @@ class PlotWorker(threading.Thread) :
 				logging.error("Problem plotting new data tuple: %s"%detail)
 	
 	def PullDataFromStore(self,**kwargs) :
+		"""
+		Updates the data plotted by the PlotWorker with the latest data from the datastore
+
+		kwargs - a dict() to overwrite default values of gstate
+
+		internal variables -
+			gstate -
+				the current state of the graph (what is on the x axis and which learning curve or
+				cross section is shown)
+			self.xdata -
+				x coordinates of the data to plot
+			self.ytdata -
+				y coordinates of the data to plot for the training score line
+			self.ycvdata -
+				y coordinate of the data to plot for the cross validation score line
+		"""
 		logging.debug("Entering PullDataFromStore() for %s"%str(kwargs.items()))
 		gstate = {'m':0,
 		          'cost':1,
@@ -112,6 +193,18 @@ class PlotWorker(threading.Thread) :
 		logging.debug("Leaving PullDataFromStore() for %s"%str(kwargs.items()))
 
 	def getIndexOfTuple(self, val1, val2):
+		"""
+		Returns the index of the datatuple that matches the input values provided. This is a worker function
+		used when adding new data to the datastore to avoid adding multiple instances of the same data.
+
+		val1 -
+			number of training samples used to train the solution taken from the PlotDataQ
+		val2 -
+			cost or regularization value used when training the solution taken from the PlotDataQ
+		
+		Return values:
+			pos or lendata-1 - the index in the datastore of the data tuple matching the provided values
+		"""
 		lendata = len(self.datastore)
 		for pos,t in enumerate(self.datastore[0:lendata-1]):
 			if (t[1] > val1) : break
@@ -125,6 +218,17 @@ class PlotWorker(threading.Thread) :
 			raise ValueError("list.index(m,cost): match to %d,%f not in list"%(val1,val2))
 
 	def DoLineAnimation(self) :
+		"""
+		Animate the plot lines with the data saved in self.xdata, self.ytdata, and self.ycvdata
+
+		internal variables -
+			self.xdata -
+				x coordinates of the data to plot
+			self.ytdata -
+				y coordinates of the data to plot for the training score line
+			self.ycvdata -
+				y coordinate of the data to plot for the cross validation score line
+		"""
 		logging.debug("Entering DoLineAnimation()")
 		if self.background is None:
 			logging.debug("Returning from DoLineAnimation() with background is None.")
@@ -141,6 +245,9 @@ class PlotWorker(threading.Thread) :
 		logging.debug("Leaving DoLineAnimation()")
 
 	def UpdateAxisLimits(self) :
+		"""
+		Update the static elements of the plot (x and y axis, etc.) when a graph state change signal is caught
+		"""
 		logging.debug("Entering UpdateAxisLimits()")
 
 		xminlim = 0
