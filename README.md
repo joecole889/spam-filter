@@ -14,4 +14,4 @@ training of the SVM using cross-validation data.
 
 Upcoming improvements include completion of the GUI interface!
 
-Better documentation is started and under development.  See the index.rst file to start.
+Better documentation is started and under development.  See the <a href="http://joecole889.github.io/spam-filter">GitHub project documentation pages</a> to start.
