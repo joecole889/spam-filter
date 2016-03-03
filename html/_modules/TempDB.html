@@ -1,0 +1,254 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>TempDB &mdash; LearningCurveApp 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="../about.html" />
+    <link rel="top" title="LearningCurveApp 1.0 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">LearningCurveApp 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for TempDB</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Creates a temporary database using the system&#39;s temporary file infrastructure. This is useful when it is</span>
+<span class="sd">necessary to maintain multiple data cursors in a database because a temporary copy of a given table can </span>
+<span class="sd">be made. Both database connections (the persistent and the temporary ones) can then be open at the same</span>
+<span class="sd">time - one for reading and one for writing.</span>
+
+<span class="sd">Created on Tue Feb 09 16:03:00 2016</span>
+
+<span class="sd">@author: Joseph R. Cole</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c">#import pdb</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sqlite3</span>
+
+<div class="viewcode-block" id="TempDB"><a class="viewcode-back" href="../apiref.html#TempDB.TempDB">[docs]</a><span class="k">class</span> <span class="nc">TempDB</span> <span class="p">:</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Controls the connection to a temporary database. All SQL commands are</span>
+<span class="sd">	placed in an external JSON file so that the queries do not need to be hard coded.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">DB_Connect</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="n">DB_Cursor</span> <span class="o">=</span> <span class="bp">None</span>
+
+<div class="viewcode-block" id="TempDB.__init__"><a class="viewcode-back" href="../apiref.html#TempDB.TempDB.__init__">[docs]</a>	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">sqlcmdpath</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Load external data and parameters in preparation to work with a temporary database.</span>
+
+<span class="sd">		sqlcmdpath -</span>
+<span class="sd">			json file with SQL commands for queries on the sqlite3 database</span>
+
+<span class="sd">		shared class variables -</span>
+<span class="sd">			self.DBpath - full path to the temporary database file; will be set in TempDB.CreateDB()</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">fhan</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">sqlcmdpath</span><span class="p">)</span>
+			<span class="n">SQLCMDStr</span> <span class="o">=</span> <span class="n">fhan</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+			<span class="n">fhan</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">SQLCMDs</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">SQLCMDStr</span><span class="p">)</span>
+		<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Unable to load SQL commands from </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="p">(</span><span class="n">sqlcmdpath</span><span class="p">,</span><span class="n">detail</span><span class="p">))</span>
+			<span class="nb">exit</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">CreateDB</span><span class="p">()</span>
+		<span class="k">return</span>
+</div>
+	<span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Automatically ensures the database connection is closed and any temporary files are deleted</span>
+<span class="sd">		when all references to this object are gone.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DisconnectDB</span><span class="p">()</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="p">:</span>
+			<span class="k">try</span> <span class="p">:</span>
+				<span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">)</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Removed temporary database at </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">)</span>
+			<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Failed to remove temporary database: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">)</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">detail</span><span class="p">)</span>
+			<span class="k">try</span> <span class="p">:</span>
+				<span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="s">&#39;-&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">,</span><span class="s">&quot;journal&quot;</span><span class="p">]))</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Removed temporary database journal at </span><span class="si">%s</span><span class="s">-journal&quot;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">)</span>
+			<span class="k">except</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;No journal file identified for removal.&quot;</span><span class="p">)</span>
+		<span class="k">return</span>
+
+<div class="viewcode-block" id="TempDB.CreateDB"><a class="viewcode-back" href="../apiref.html#TempDB.TempDB.CreateDB">[docs]</a>	<span class="k">def</span> <span class="nf">CreateDB</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Creates a temporary file to use for the database; similar to the unix touch command. The</span>
+<span class="sd">		full path to the temporary file is saved in self.DBpath</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="n">fid</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkstemp</span><span class="p">(</span><span class="n">suffix</span><span class="o">=</span><span class="s">&#39;.sqlite3&#39;</span><span class="p">,</span><span class="n">prefix</span><span class="o">=</span><span class="s">&#39;tmp&#39;</span><span class="p">,</span><span class="nb">dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span><span class="n">text</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+			<span class="n">fhan</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">fdopen</span><span class="p">(</span><span class="n">fid</span><span class="p">)</span>
+			<span class="n">fhan</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Created temporary database at </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">)</span>
+		<span class="k">except</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Unable to create the database at </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">)</span>
+		<span class="k">return</span>
+</div>
+<div class="viewcode-block" id="TempDB.ConnectDB"><a class="viewcode-back" href="../apiref.html#TempDB.TempDB.ConnectDB">[docs]</a>	<span class="k">def</span> <span class="nf">ConnectDB</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Connect to the temporary database and setup a database cursor</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DB_Connect</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">)</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Connected to temporary database at </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DB_Cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DB_Connect</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+		<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">detail</span><span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Failed to connect to the database: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="n">detail</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DB_Connect</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>
+		<span class="k">return</span>
+</div>
+<div class="viewcode-block" id="TempDB.DisconnectDB"><a class="viewcode-back" href="../apiref.html#TempDB.TempDB.DisconnectDB">[docs]</a>	<span class="k">def</span> <span class="nf">DisconnectDB</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Disconnect the temporary database</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">try</span> <span class="p">:</span>
+			<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">DB_Connect</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">DB_Cursor</span> <span class="o">=</span> <span class="bp">None</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">DB_Connect</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;Disconnected the database: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">DBpath</span><span class="p">)</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">DB_Connect</span> <span class="o">=</span> <span class="bp">None</span>
+			<span class="k">else</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;No database to disconnect.&quot;</span><span class="p">)</span>
+		<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Failed to disconnect the database: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="n">detail</span><span class="p">)</span>
+		<span class="k">return</span>
+</div>
+<div class="viewcode-block" id="TempDB.RunCommand"><a class="viewcode-back" href="../apiref.html#TempDB.TempDB.RunCommand">[docs]</a>	<span class="k">def</span> <span class="nf">RunCommand</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sqlstr</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="p">(),</span> <span class="n">commit</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Executes an SQL query against the temporary database</span>
+
+<span class="sd">		sqlstr -</span>
+<span class="sd">			a string containing the SQL command to execute; typically this would be one of the strings</span>
+<span class="sd">			stored in the dictionary self.SQLCMDs, loaded from a JSON file during initialization</span>
+<span class="sd">		params -</span>
+<span class="sd">			an optional tuple containing any runtime values to fill in the sqlstr (marked by ? in the string)</span>
+<span class="sd">		commit -</span>
+<span class="sd">			an optional boolean indicating whether or not to commit the change to the database right away</span>
+<span class="sd">			[default True]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DB_Cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sqlstr</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">commit</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DB_Connect</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="TempDB.RunCommands"><a class="viewcode-back" href="../apiref.html#TempDB.TempDB.RunCommands">[docs]</a>	<span class="k">def</span> <span class="nf">RunCommands</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sqlstr</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="p">[()],</span> <span class="n">commit</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Executes many SQL queries against the temporary database</span>
+
+<span class="sd">		sqlstr -</span>
+<span class="sd">			a string containing the SQL command to execute multiple times; typically this would be one of</span>
+<span class="sd">			the strings stored in the dictionary self.SQLCMDs, loaded from a JSON file during initialization</span>
+<span class="sd">		params -</span>
+<span class="sd">			an optional list of tuples containing any runtime values to fill in the sqlstr (marked by ? in the string)</span>
+<span class="sd">		commit -</span>
+<span class="sd">			an optional boolean indicating whether or not to commit the changes to the database right away</span>
+<span class="sd">			[default True]</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DB_Cursor</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="n">sqlstr</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">commit</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DB_Connect</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+<span class="c">################### Main Program ################### </span>
+</div></div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span> <span class="p">:</span>
+	<span class="c">#Test code goes here</span>
+	<span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+	<span class="c">#logging.basicConfig(filename=&#39;example.log&#39;,level=logging.INFO)</span>
+	<span class="c">#pdb.set_trace()</span>
+	<span class="n">aa</span> <span class="o">=</span> <span class="n">TempDB</span><span class="p">(</span><span class="s">r&quot;C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\TempDB_SQL.json&quot;</span><span class="p">)</span>
+	<span class="n">aa</span><span class="o">.</span><span class="n">ConnectDB</span><span class="p">()</span>
+	<span class="k">print</span> <span class="s">&quot;Creating fresh database&quot;</span>
+	<span class="n">aa</span><span class="o">.</span><span class="n">CreateDB</span><span class="p">()</span>
+	<span class="k">print</span> <span class="s">&quot;Adding&quot;</span>
+	<span class="c">#aa.AddToDB()</span>
+	<span class="c">#print &quot;Reset the database&quot;</span>
+	<span class="c">#aa.ResetDB()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">LearningCurveApp 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2016, Joseph R. Cole.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.3.
+    </div>
+  </body>
+</html>
