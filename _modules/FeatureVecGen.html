@@ -1,0 +1,240 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>FeatureVecGen &mdash; LearningCurveApp 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="../about.html" />
+    <link rel="top" title="LearningCurveApp 1.0 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">LearningCurveApp 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for FeatureVecGen</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Contains a class to generate feature vectors from email text. Utility functions are also included for</span>
+<span class="sd">creating the dictionaries needed to build the feature vectors. Uses the Porter stemmer algorithm</span>
+<span class="sd">as implemented in the natural language processing toolkit (nltk).</span>
+
+<span class="sd">Created on Fri Feb 12 13:35:00 2016</span>
+
+<span class="sd">@author: JCole119213</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c">#import pdb</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">from</span> <span class="nn">nltk.stem.porter</span> <span class="kn">import</span> <span class="n">PorterStemmer</span>
+
+<div class="viewcode-block" id="FeatureVecGen"><a class="viewcode-back" href="../apiref.html#FeatureVecGen.FeatureVecGen">[docs]</a><span class="k">class</span> <span class="nc">FeatureVecGen</span> <span class="p">:</span>
+<div class="viewcode-block" id="FeatureVecGen.__init__"><a class="viewcode-back" href="../apiref.html#FeatureVecGen.FeatureVecGen.__init__">[docs]</a>	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">DictList</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Initialize the feature vector creation engine with a list of words from a dictionary.</span>
+
+<span class="sd">		DictList -</span>
+<span class="sd">			a list of strings (words) from a dictionary, used to build the feature vectors</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">HashDict</span><span class="p">(</span><span class="n">DictList</span><span class="p">)</span>	<span class="c">#Initializes self.DictHash</span>
+		<span class="k">return</span>
+</div>
+<div class="viewcode-block" id="FeatureVecGen.MakeVec"><a class="viewcode-back" href="../apiref.html#FeatureVecGen.FeatureVecGen.MakeVec">[docs]</a>	<span class="k">def</span> <span class="nf">MakeVec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">SampleBody</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Implements the full flow of creating a feature vector from the raw string extracted from an email</span>
+
+<span class="sd">		SampleBody -</span>
+<span class="sd">			unprocessed text from the body of an email message</span>
+
+<span class="sd">		Return values:</span>
+<span class="sd">			featurevec -</span>
+<span class="sd">				a list of integers (actually only 0 or 1, but stored as int) indicating the absence or</span>
+<span class="sd">				presence in SampleBody of each dictionary word from self.DictHash</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">SampleWords</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">RegularizeWords</span><span class="p">(</span><span class="n">SampleBody</span><span class="p">)</span>
+		<span class="n">SampleWords</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">StemWords</span><span class="p">(</span><span class="n">SampleWords</span><span class="p">)</span>
+		<span class="n">featurevec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">MarkWordPresence</span><span class="p">(</span><span class="n">SampleWords</span><span class="p">)</span>
+		<span class="k">return</span> <span class="n">featurevec</span>
+</div>
+<div class="viewcode-block" id="FeatureVecGen.MarkWordPresence"><a class="viewcode-back" href="../apiref.html#FeatureVecGen.FeatureVecGen.MarkWordPresence">[docs]</a>	<span class="k">def</span> <span class="nf">MarkWordPresence</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">EmailContentsReg</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Create a feature vector from the regularized text of an email message body</span>
+
+<span class="sd">		EmailContentsReg -</span>
+<span class="sd">			a list of strings (words) after processing by the FeatureVecGen.RegularizeWords() method</span>
+
+<span class="sd">		Return values:</span>
+<span class="sd">			FeatureVec -</span>
+<span class="sd">				a list of integers (actually only 0 or 1, but stored as int) indicating the absence or</span>
+<span class="sd">				presence in EmailContentsReg of each dictionary word from self.DictHash</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">FeatureVec</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">DictHash</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">Word</span> <span class="ow">in</span> <span class="n">EmailContentsReg</span> <span class="p">:</span>
+			<span class="n">FeatureInd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DictHash</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">Word</span><span class="p">,</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>  <span class="c"># Check if word is in the dictionary</span>
+			<span class="k">if</span> <span class="n">FeatureInd</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span> <span class="p">:</span>
+				<span class="n">FeatureVec</span><span class="p">[</span><span class="n">FeatureInd</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>	  <span class="c"># Note the presence of the word as a feature - only one instance of the word matters</span>
+		<span class="k">return</span> <span class="n">FeatureVec</span>
+</div>
+<div class="viewcode-block" id="FeatureVecGen.HashDict"><a class="viewcode-back" href="../apiref.html#FeatureVecGen.FeatureVecGen.HashDict">[docs]</a>	<span class="k">def</span> <span class="nf">HashDict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">DictList</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Creates a hash to determine the presence of a word in the dictionary and the corresponding feature location</span>
+
+<span class="sd">		DictList -</span>
+<span class="sd">			a list of strings (words) from a dictionary, used to build the feature vectors</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">DictHash</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+		<span class="k">for</span> <span class="n">ind</span><span class="p">,</span><span class="n">Word</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">DictList</span><span class="p">)</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">DictHash</span><span class="p">[</span><span class="n">Word</span><span class="p">]</span> <span class="o">=</span> <span class="n">ind</span>
+		<span class="k">return</span>
+</div>
+	<span class="nd">@classmethod</span>
+<div class="viewcode-block" id="FeatureVecGen.ParetoWords"><a class="viewcode-back" href="../apiref.html#FeatureVecGen.FeatureVecGen.ParetoWords">[docs]</a>	<span class="k">def</span> <span class="nf">ParetoWords</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span><span class="n">TextToProcess</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Creates a dictionary with a count of all words in the text to be processed</span>
+
+<span class="sd">		TextToProcess -</span>
+<span class="sd">			unprocessed text from the body of an email message</span>
+
+<span class="sd">		Return values:</span>
+<span class="sd">			DictHist -</span>
+<span class="sd">				a Python dictionary where the value associated with each key (regularized, stemmed words) is</span>
+<span class="sd">				a count of the number of times that word occurred in TextToProcess</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">DictHist</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+
+		<span class="n">Words</span> <span class="o">=</span> <span class="n">cls</span><span class="o">.</span><span class="n">RegularizeWords</span><span class="p">(</span><span class="n">TextToProcess</span><span class="p">)</span>
+		<span class="n">ShortWords</span> <span class="o">=</span> <span class="n">cls</span><span class="o">.</span><span class="n">StemWords</span><span class="p">(</span><span class="n">Words</span><span class="p">)</span>
+
+		<span class="c"># Create word histogram</span>
+		<span class="k">for</span> <span class="n">ShortWord</span> <span class="ow">in</span> <span class="n">ShortWords</span> <span class="p">:</span>
+			<span class="n">DictHist</span><span class="p">[</span><span class="n">ShortWord</span><span class="p">]</span> <span class="o">=</span> <span class="n">DictHist</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ShortWord</span><span class="p">,</span><span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span> <span class="c"># Create the histogram of word counts</span>
+
+		<span class="k">return</span> <span class="n">DictHist</span>
+</div>
+	<span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="FeatureVecGen.RegularizeWords"><a class="viewcode-back" href="../apiref.html#FeatureVecGen.FeatureVecGen.RegularizeWords">[docs]</a>	<span class="k">def</span> <span class="nf">RegularizeWords</span><span class="p">(</span><span class="n">FileStr</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Removes email addresses, punctuation, HTML tags, etc.</span>
+
+<span class="sd">		FileStr -</span>
+<span class="sd">			unprocessed text from the body of an email message</span>
+<span class="sd">			</span>
+<span class="sd">		Return values:</span>
+<span class="sd">			FileWords -</span>
+<span class="sd">				a list of stings split by punctuation and filtered from 0 length strings</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">FileStr</span> <span class="o">=</span> <span class="n">FileStr</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>    <span class="c"># Go to lower case</span>
+		<span class="n">FileStr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">&#39;&lt;[^&lt;&gt;]+&gt;&#39;</span><span class="p">,</span><span class="s">&#39; &#39;</span><span class="p">,</span><span class="n">FileStr</span><span class="p">)</span>    <span class="c"># Remove HTML tags without &lt; or &gt; inside</span>
+		<span class="n">FileStr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">&#39;\d+&#39;</span><span class="p">,</span><span class="s">&#39;number&#39;</span><span class="p">,</span><span class="n">FileStr</span><span class="p">)</span>    <span class="c"># Replace all numbers with the string &#39;number&#39;</span>
+		<span class="n">FileStr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">&#39;(http|https)://[^\s]*&#39;</span><span class="p">,</span><span class="s">&#39;httpaddr&#39;</span><span class="p">,</span><span class="n">FileStr</span><span class="p">)</span>    <span class="c"># Replace all URLs with the string &#39;httpaddr&#39;</span>
+		<span class="n">FileStr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">&#39;[^\s]+@[^\s]+&#39;</span><span class="p">,</span><span class="s">&#39;emailaddr&#39;</span><span class="p">,</span><span class="n">FileStr</span><span class="p">)</span>    <span class="c"># Replace all emails with the string &#39;emailaddr&#39;</span>
+		<span class="n">FileStr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">&#39;[$]+&#39;</span><span class="p">,</span><span class="s">&#39;dollar&#39;</span><span class="p">,</span><span class="n">FileStr</span><span class="p">)</span>    <span class="c"># Replace all $ signs with the string &#39;dollar&#39; as spam is likely to reference money</span>
+		<span class="n">FileWords</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;[\s\|@/#\.\-:&amp;\*\+=\[\]\?!\(\)\{\},</span><span class="se">\&#39;</span><span class="s">&quot;&gt;_&lt;;%~]&#39;</span><span class="p">,</span><span class="n">FileStr</span><span class="p">)</span>
+		<span class="k">return</span> <span class="nb">filter</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span><span class="n">FileWords</span><span class="p">)</span>
+</div>
+	<span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="FeatureVecGen.StemWords"><a class="viewcode-back" href="../apiref.html#FeatureVecGen.FeatureVecGen.StemWords">[docs]</a>	<span class="k">def</span> <span class="nf">StemWords</span><span class="p">(</span><span class="n">WordList</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Extracts the root of a word (e.g. stepped -&gt; step) using the Porter stemmer algorithm</span>
+
+<span class="sd">		WordList -</span>
+<span class="sd">			a list of strings (words) as processed by the FeatureVecGen.RegularizeWords() method</span>
+
+<span class="sd">		Return values:</span>
+<span class="sd">			StemmedWordList - a list of root words from the input list</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">stemmer</span> <span class="o">=</span> <span class="n">PorterStemmer</span><span class="p">()</span>
+		<span class="n">StemmedWordList</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="c"># Loop over list and stem the words</span>
+		<span class="k">for</span> <span class="n">Word</span> <span class="ow">in</span> <span class="n">WordList</span> <span class="p">:</span>
+			<span class="k">assert</span> <span class="p">(</span><span class="n">Word</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;[\W_]&#39;</span><span class="p">)</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span><span class="s">&#39;Failed to remove all non-alphanumeric characters: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">Word</span>
+			<span class="k">try</span> <span class="p">:</span>   <span class="c"># Not sure about the reliability of the Porter Stemmer code, so use a try/catch block</span>
+				<span class="n">ShortWord</span> <span class="o">=</span> <span class="n">stemmer</span><span class="o">.</span><span class="n">stem</span><span class="p">(</span><span class="n">Word</span><span class="p">)</span>
+				<span class="k">assert</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ShortWord</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">)</span> <span class="c"># Ignore words less than 3 characters long</span>
+				<span class="n">StemmedWordList</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ShortWord</span><span class="p">)</span>
+			<span class="k">except</span> <span class="p">:</span>
+				<span class="k">continue</span>
+		<span class="k">return</span> <span class="n">StemmedWordList</span>
+
+<span class="c">################### Main Program ################### </span>
+</div></div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span> <span class="p">:</span>
+	<span class="k">print</span> <span class="s">&quot;Test code goes here.&quot;</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">LearningCurveApp 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2016, Joseph R. Cole.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.3.
+    </div>
+  </body>
+</html>

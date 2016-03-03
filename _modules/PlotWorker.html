@@ -1,0 +1,366 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>PlotWorker &mdash; LearningCurveApp 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="author" title="About these documents" href="../about.html" />
+    <link rel="top" title="LearningCurveApp 1.0 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">LearningCurveApp 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for PlotWorker</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">This module implements a class derived from the Thread class in the threading module to encapsulate the</span>
+<span class="sd">execution of the PlotWorker thread.</span>
+
+<span class="sd">Created on Wed Feb 24 15:39:00 2016</span>
+
+<span class="sd">@author: JCole119213</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">threading</span>
+<span class="kn">import</span> <span class="nn">Queue</span>
+<span class="kn">from</span> <span class="nn">operator</span> <span class="kn">import</span> <span class="n">itemgetter</span>
+<span class="kn">from</span> <span class="nn">matplotlib.lines</span> <span class="kn">import</span> <span class="n">Line2D</span>
+<span class="kn">import</span> <span class="nn">time</span>
+
+<div class="viewcode-block" id="PlotWorker"><a class="viewcode-back" href="../apiref.html#PlotWorker.PlotWorker">[docs]</a><span class="k">class</span> <span class="nc">PlotWorker</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">)</span> <span class="p">:</span>
+<div class="viewcode-block" id="PlotWorker.__init__"><a class="viewcode-back" href="../apiref.html#PlotWorker.PlotWorker.__init__">[docs]</a>	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">PlotDataQ</span><span class="p">,</span> <span class="n">datastore</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">watchlist</span><span class="p">,</span> <span class="n">watchlock</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Initialize references to variables shared with the main thread of execution in the LearningCurveApp</span>
+<span class="sd">		module</span>
+
+<span class="sd">		variables shared between threads -</span>
+<span class="sd">			self.PlotDataQ -</span>
+<span class="sd">				a Queue to use for interacting with the main thread</span>
+<span class="sd">					contains &#39;None&#39; signal to indicate a change of graph state, *or*</span>
+<span class="sd">					contains a data tuple with: (MachineLearningObject, NumberOfTrainingSamplesUsed, CostUsed, TrainingScore, CrossValidationScore)</span>
+<span class="sd">			self.datastore -</span>
+<span class="sd">				a list of data tuples with the scores of trained solutions to be plotted as</span>
+<span class="sd">				learning curves</span>
+<span class="sd">			self.ax -</span>
+<span class="sd">				a reference to the matplotlib axes in the main GUI (where this thread will plot data)</span>
+<span class="sd">			self.watchlist -</span>
+<span class="sd">				a list of values updated by the main thread to control the state of the plot.</span>
+<span class="sd">				All communication between threads is accomplished by putting values on the PlotDataQ (None indicates the watchlist changed)</span>
+
+<span class="sd">					self.watchlist[0] -</span>
+<span class="sd">						switches the plot x-axis between # training samples (false) and</span>
+<span class="sd">						the cost or regularization parameters tried (true)</span>
+<span class="sd">					self.watchlist[1][0] -</span>
+<span class="sd">						location where a learning curve cross section is shown when watchlist[0] is true</span>
+<span class="sd">					self.watchlist[1][1] -</span>
+<span class="sd">						maximum extent of the # of training samples axis if watchlist[0] is false</span>
+<span class="sd">					self.watchlist[2][0] -</span>
+<span class="sd">						cost or regularization value for the displayed learning curve when watchlist[0] is false</span>
+<span class="sd">					self.watchlist[2][1] -</span>
+<span class="sd">						maximum extent of the cost/regularization axis if watchlist[0] is true</span>
+<span class="sd">			self.watchlock -</span>
+<span class="sd">				a lock to protect variables watched by the PlotWorker thread</span>
+
+<span class="sd">		Parameters:</span>
+<span class="sd">			self.params[&#39;RedrawDelay&#39;] -</span>
+<span class="sd">				parameter to control the sleep time between redrawing the axes animating the graph lines; this</span>
+<span class="sd">				is needed because matplotlib is *not* technically thread safe</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="nb">super</span><span class="p">(</span><span class="n">PlotWorker</span><span class="p">,</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span> <span class="o">=</span> <span class="n">PlotDataQ</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">datastore</span> <span class="o">=</span> <span class="n">datastore</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span> <span class="o">=</span> <span class="n">ax</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">canvas</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">canvas</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">init_plot</span><span class="p">()</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span> <span class="o">=</span> <span class="n">watchlist</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="o">=</span> <span class="n">watchlock</span>
+		<span class="c"># TODO: make this configurable from and optional dictionary passed into this constructor</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">params</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;RedrawDelay&#39;</span><span class="p">:</span><span class="mf">0.5</span><span class="p">}</span>
+		<span class="k">return</span>
+</div>
+<div class="viewcode-block" id="PlotWorker.init_plot"><a class="viewcode-back" href="../apiref.html#PlotWorker.PlotWorker.init_plot">[docs]</a>	<span class="k">def</span> <span class="nf">init_plot</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Setup the plot for the first time (runs with this thread is first started). Sets a callback executed</span>
+<span class="sd">		when a draw event occurs to store the background of the plot.</span>
+
+<span class="sd">		internal variables -</span>
+<span class="sd">			self.xdata -</span>
+<span class="sd">				x coordinates of the data to plot</span>
+<span class="sd">			self.ytdata -</span>
+<span class="sd">				y coordinates of the data to plot for the training score line</span>
+<span class="sd">			self.ycvdata -</span>
+<span class="sd">				y coordinate of the data to plot for the cross validation score line</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">xdata</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ytdata</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ycvdata</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">linet</span> <span class="o">=</span> <span class="n">Line2D</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xdata</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ytdata</span><span class="p">,</span> <span class="n">animated</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">&#39;Training&#39;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">linecv</span> <span class="o">=</span> <span class="n">Line2D</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xdata</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ycvdata</span><span class="p">,</span> <span class="n">animated</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;r&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">&#39;Cross Validation&#39;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">add_line</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">linet</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">add_line</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">linecv</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">background</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">mpl_connect</span><span class="p">(</span><span class="s">&#39;draw_event&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">update_background</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mf">1.05</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s">&#39;Error&#39;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s">&#39;Number of Training Samples&#39;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">draw</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="PlotWorker.update_background"><a class="viewcode-back" href="../apiref.html#PlotWorker.PlotWorker.update_background">[docs]</a>	<span class="k">def</span> <span class="nf">update_background</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Store the plot background (all the static elements) for more efficient line animations on top</span>
+
+<span class="sd">		_ is an unused argument that is automatically passed to the function when it is used as a draw event</span>
+<span class="sd">		based binding containing information about the triggering event (see init_plot())</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Storing background due to draw event.&quot;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">background</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">copy_from_bbox</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">bbox</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="PlotWorker.run"><a class="viewcode-back" href="../apiref.html#PlotWorker.PlotWorker.run">[docs]</a>	<span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Main execution loop for the PlotWorker thread; called when the main thread of execution starts</span>
+<span class="sd">		this thread. Blocks until data or a &#39;None&#39; signal it put on the PlotDataQ from outside.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">while</span> <span class="bp">True</span> <span class="p">:</span>
+			<span class="k">try</span> <span class="p">:</span>
+				<span class="n">data_tup</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+				<span class="c">#logging.debug(&quot;Got data_tup %s from queue&quot;%str(data_tup))</span>
+				<span class="n">start_t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+
+				<span class="c"># Copy watches to temp variables for thread safety</span>
+				<span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="p">:</span>
+					<span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+					<span class="n">m</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+					<span class="n">mm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+					<span class="n">c</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+					<span class="n">mc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+
+				<span class="k">if</span> <span class="n">data_tup</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="p">:</span>
+					<span class="c"># 1) Update the datastore</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">datastore</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data_tup</span><span class="p">)</span>
+					<span class="n">ii</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getIndexOfTuple</span><span class="p">(</span><span class="n">data_tup</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="n">data_tup</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+					<span class="k">if</span> <span class="n">ii</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datastore</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span> <span class="p">:</span>
+						<span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">datastore</span><span class="p">[</span><span class="n">ii</span><span class="p">]</span>
+						<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Removing a previous calculated data point due to recalculation.&quot;</span><span class="p">)</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">datastore</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">itemgetter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">))</span>
+
+					<span class="c"># 2) If the new data matchs graph state then plot it</span>
+					<span class="k">if</span> <span class="p">(</span><span class="n">x</span> <span class="ow">and</span> <span class="p">(</span><span class="n">m</span><span class="o">==</span><span class="n">data_tup</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span> <span class="ow">or</span> <span class="p">((</span><span class="ow">not</span> <span class="n">x</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">c</span><span class="o">==</span><span class="n">data_tup</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span> <span class="p">:</span>
+						<span class="bp">self</span><span class="o">.</span><span class="n">PullDataFromStore</span><span class="p">(</span><span class="n">cost</span><span class="o">=</span><span class="n">c</span><span class="p">,</span> <span class="n">xsec_on</span><span class="o">=</span><span class="n">x</span><span class="p">,</span> <span class="n">m</span><span class="o">=</span><span class="n">m</span><span class="p">)</span>
+						<span class="bp">self</span><span class="o">.</span><span class="n">DoLineAnimation</span><span class="p">()</span>
+				<span class="k">else</span> <span class="p">:</span>
+					<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Caught change in graph state: </span><span class="si">%d</span><span class="s">, </span><span class="si">%d</span><span class="s"> of </span><span class="si">%d</span><span class="s">, </span><span class="si">%f</span><span class="s"> of </span><span class="si">%f</span><span class="s">&quot;</span><span class="o">%</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">m</span><span class="p">,</span><span class="n">mm</span><span class="p">,</span><span class="n">c</span><span class="p">,</span><span class="n">mc</span><span class="p">))</span>
+					<span class="c"># 1) Update the animated plot element data based on data already in the datastore</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">PullDataFromStore</span><span class="p">(</span><span class="n">cost</span><span class="o">=</span><span class="n">c</span><span class="p">,</span> <span class="n">xsec_on</span><span class="o">=</span><span class="n">x</span><span class="p">,</span> <span class="n">m</span><span class="o">=</span><span class="n">m</span><span class="p">)</span>
+					<span class="c"># 2) Redraw the plot axes and store the background</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">UpdateAxisLimits</span><span class="p">()</span>
+					<span class="c"># 3) Sleep because matplotlib is not thread safe and it needs time to redraw</span>
+					<span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;RedrawDelay&#39;</span><span class="p">])</span>
+					<span class="c"># 4) Animate the graph lines</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">DoLineAnimation</span><span class="p">()</span>
+
+				<span class="n">end_t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+				<span class="n">elapsed_t</span> <span class="o">=</span> <span class="n">end_t</span><span class="o">-</span><span class="n">start_t</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Plotting elapsed time is: </span><span class="si">%f</span><span class="s">&quot;</span><span class="o">%</span><span class="n">elapsed_t</span><span class="p">)</span>
+
+				<span class="bp">self</span><span class="o">.</span><span class="n">PlotDataQ</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+				<span class="c">#logging.debug(&quot;Done processing data_tup %s&quot;%str(data_tup))</span>
+			<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">detail</span> <span class="p">:</span>
+				<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;Problem plotting new data tuple: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="n">detail</span><span class="p">)</span>
+	</div>
+<div class="viewcode-block" id="PlotWorker.PullDataFromStore"><a class="viewcode-back" href="../apiref.html#PlotWorker.PlotWorker.PullDataFromStore">[docs]</a>	<span class="k">def</span> <span class="nf">PullDataFromStore</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Updates the data plotted by the PlotWorker with the latest data from the datastore</span>
+
+<span class="sd">		kwargs - a dict() to overwrite default values of gstate</span>
+
+<span class="sd">		internal variables -</span>
+<span class="sd">			gstate -</span>
+<span class="sd">				the current state of the graph (what is on the x axis and which learning curve or</span>
+<span class="sd">				cross section is shown)</span>
+<span class="sd">			self.xdata -</span>
+<span class="sd">				x coordinates of the data to plot</span>
+<span class="sd">			self.ytdata -</span>
+<span class="sd">				y coordinates of the data to plot for the training score line</span>
+<span class="sd">			self.ycvdata -</span>
+<span class="sd">				y coordinate of the data to plot for the cross validation score line</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Entering PullDataFromStore() for </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="nb">str</span><span class="p">(</span><span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">()))</span>
+		<span class="n">gstate</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;m&#39;</span><span class="p">:</span><span class="mi">0</span><span class="p">,</span>
+		          <span class="s">&#39;cost&#39;</span><span class="p">:</span><span class="mi">1</span><span class="p">,</span>
+		          <span class="s">&#39;xsec_on&#39;</span><span class="p">:</span><span class="bp">False</span><span class="p">}</span>
+		<span class="n">gstate</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+
+		<span class="k">if</span> <span class="n">gstate</span><span class="p">[</span><span class="s">&#39;xsec_on&#39;</span><span class="p">]</span> <span class="p">:</span>
+			<span class="n">data</span> <span class="o">=</span> <span class="p">[(</span><span class="n">t</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="mi">1</span><span class="o">-</span><span class="n">t</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span><span class="mi">1</span><span class="o">-</span><span class="n">t</span><span class="p">[</span><span class="mi">4</span><span class="p">])</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datastore</span> <span class="k">if</span> <span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">==</span><span class="n">gstate</span><span class="p">[</span><span class="s">&#39;m&#39;</span><span class="p">]]</span>
+		<span class="k">else</span> <span class="p">:</span>
+			<span class="n">data</span> <span class="o">=</span> <span class="p">[(</span><span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="mi">1</span><span class="o">-</span><span class="n">t</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span><span class="mi">1</span><span class="o">-</span><span class="n">t</span><span class="p">[</span><span class="mi">4</span><span class="p">])</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">datastore</span> <span class="k">if</span> <span class="n">t</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">==</span><span class="n">gstate</span><span class="p">[</span><span class="s">&#39;cost&#39;</span><span class="p">]]</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">data</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Returning from PullDataFromStore() with no data.&quot;</span><span class="p">)</span>
+		<span class="k">else</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">xdata</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">ytdata</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">ycvdata</span> <span class="o">=</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">data</span><span class="p">)</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Got this xdata: </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xdata</span><span class="p">))</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Leaving PullDataFromStore() for </span><span class="si">%s</span><span class="s">&quot;</span><span class="o">%</span><span class="nb">str</span><span class="p">(</span><span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">()))</span>
+</div>
+<div class="viewcode-block" id="PlotWorker.getIndexOfTuple"><a class="viewcode-back" href="../apiref.html#PlotWorker.PlotWorker.getIndexOfTuple">[docs]</a>	<span class="k">def</span> <span class="nf">getIndexOfTuple</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">val1</span><span class="p">,</span> <span class="n">val2</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Returns the index of the datatuple that matches the input values provided. This is a worker function</span>
+<span class="sd">		used when adding new data to the datastore to avoid adding multiple instances of the same data.</span>
+
+<span class="sd">		val1 -</span>
+<span class="sd">			number of training samples used to train the solution taken from the PlotDataQ</span>
+<span class="sd">		val2 -</span>
+<span class="sd">			cost or regularization value used when training the solution taken from the PlotDataQ</span>
+<span class="sd">		</span>
+<span class="sd">		Return values:</span>
+<span class="sd">			pos or lendata-1 - the index in the datastore of the data tuple matching the provided values</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">lendata</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datastore</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">pos</span><span class="p">,</span><span class="n">t</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datastore</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="n">lendata</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
+			<span class="k">if</span> <span class="p">(</span><span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">val1</span><span class="p">)</span> <span class="p">:</span> <span class="k">break</span>
+			<span class="k">if</span> <span class="p">(</span><span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">val1</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">t</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="n">val2</span><span class="p">)</span> <span class="p">:</span>
+				<span class="k">return</span> <span class="n">pos</span>
+
+		<span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datastore</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">val1</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">datastore</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="n">val2</span><span class="p">)</span> <span class="p">:</span>
+			<span class="k">return</span> <span class="n">lendata</span><span class="o">-</span><span class="mi">1</span>
+		<span class="k">else</span> <span class="p">:</span>
+			<span class="c"># Matches behavior of list.index</span>
+			<span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;list.index(m,cost): match to </span><span class="si">%d</span><span class="s">,</span><span class="si">%f</span><span class="s"> not in list&quot;</span><span class="o">%</span><span class="p">(</span><span class="n">val1</span><span class="p">,</span><span class="n">val2</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="PlotWorker.DoLineAnimation"><a class="viewcode-back" href="../apiref.html#PlotWorker.PlotWorker.DoLineAnimation">[docs]</a>	<span class="k">def</span> <span class="nf">DoLineAnimation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Animate the plot lines with the data saved in self.xdata, self.ytdata, and self.ycvdata</span>
+
+<span class="sd">		internal variables -</span>
+<span class="sd">			self.xdata -</span>
+<span class="sd">				x coordinates of the data to plot</span>
+<span class="sd">			self.ytdata -</span>
+<span class="sd">				y coordinates of the data to plot for the training score line</span>
+<span class="sd">			self.ycvdata -</span>
+<span class="sd">				y coordinate of the data to plot for the cross validation score line</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Entering DoLineAnimation()&quot;</span><span class="p">)</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">background</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Returning from DoLineAnimation() with background is None.&quot;</span><span class="p">)</span>
+			<span class="k">return</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">restore_region</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">background</span><span class="p">)</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">xdata</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ytdata</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ycvdata</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">linet</span><span class="o">.</span><span class="n">set_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xdata</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ytdata</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">linecv</span><span class="o">.</span><span class="n">set_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xdata</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ycvdata</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">draw_artist</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">linet</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">draw_artist</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">linecv</span><span class="p">)</span>
+		<span class="k">else</span> <span class="p">:</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;No data to draw&quot;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">blit</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">bbox</span><span class="p">)</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Leaving DoLineAnimation()&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="PlotWorker.UpdateAxisLimits"><a class="viewcode-back" href="../apiref.html#PlotWorker.PlotWorker.UpdateAxisLimits">[docs]</a>	<span class="k">def</span> <span class="nf">UpdateAxisLimits</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="p">:</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Update the static elements of the plot (x and y axis, etc.) when a graph state change signal is caught</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Entering UpdateAxisLimits()&quot;</span><span class="p">)</span>
+
+		<span class="n">xminlim</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlock</span> <span class="p">:</span>
+			<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="p">:</span>
+				<span class="n">xmaxlim</span> <span class="o">=</span> <span class="mf">1.05</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s">&#39;Cost&#39;</span><span class="p">)</span>
+			<span class="k">else</span> <span class="p">:</span>
+				<span class="n">xmaxlim</span> <span class="o">=</span> <span class="mf">1.05</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">watchlist</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s">&#39;Number of Training Samples&#39;</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">set_xlim</span><span class="p">(</span><span class="n">xminlim</span><span class="p">,</span><span class="n">xmaxlim</span><span class="p">)</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ytdata</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ycvdata</span><span class="p">)</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">draw</span><span class="p">()</span>
+			<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Returning from UpdateAxisLimits() without updating y axis due to empty data lists.&quot;</span><span class="p">)</span>
+			<span class="k">return</span>
+
+		<span class="n">y_all</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ytdata</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">ycvdata</span>
+		<span class="n">yminlim</span> <span class="o">=</span> <span class="mf">0.95</span><span class="o">*</span><span class="nb">min</span><span class="p">(</span><span class="n">y_all</span><span class="p">)</span>
+		<span class="n">ymaxlim</span> <span class="o">=</span> <span class="mf">1.05</span><span class="o">*</span><span class="nb">max</span><span class="p">(</span><span class="n">y_all</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="n">yminlim</span><span class="p">,</span><span class="n">ymaxlim</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">ax</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">draw</span><span class="p">()</span>
+		<span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Exiting UpdateAxisLimits()&quot;</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">LearningCurveApp 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2016, Joseph R. Cole.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.3.
+    </div>
+  </body>
+</html>
