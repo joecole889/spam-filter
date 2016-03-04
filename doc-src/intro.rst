@@ -19,7 +19,7 @@ What we need are better tools to understand our new robotic friends.
 LearningCurveApp 1.0 is my initial attempt to open a window into the quality
 of training of a given machine learning solution.  Given a database of
 feature vectors, this application allows a data scientist to easily check the
-learning curves for their solution. Does the solution suffer from high
+learning curves of their solution. Does the solution suffer from high
 variance or high bias? Which features contribute most strongly to correct
 classification? Finally, what do misclassified examples have in common if
 anything?
