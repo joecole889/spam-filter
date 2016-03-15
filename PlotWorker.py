@@ -65,7 +65,7 @@ class PlotWorker(threading.Thread) :
 		self.watchlist = watchlist
 		self.watchlock = watchlock
 		# TODO: make this configurable from and optional dictionary passed into this constructor
-		self.params = {'RedrawDelay':0.5}
+		self.params = {'RedrawDelay':0.6}
 		return
 
 	def init_plot(self) :

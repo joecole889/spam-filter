@@ -7,6 +7,8 @@ Created on Wed Jan 27 16:24:00 2016
 @author: Joseph R. Cole
 """
 
+__version__ = '0.5.0'
+
 #import pdb
 import argparse
 import matplotlib
@@ -14,17 +16,23 @@ matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
 import matplotlib.pyplot as plt
 import tkFileDialog
+import tkMessageBox
 import logging
 from EmailSamplesDB import *
 from sklearn.svm import SVC
 import threading
 from TrainSVMs import *
 from PlotWorker import *
-
-try :
-	import Tkinter as tki
-except ImportError :
-	import tkinter as tki
+from ProgressWindow import *
+from DBBuildGUI import *
+from DictAddGUI import *
+from DictSelectGUI import *
+from WordListAddGUI import *
+from WordListSelectGUI import *
+from DictRemoveGUI import *
+from SQLCMDSetupGUI import *
+import os
+import Tkinter as tki
 
 class LearningCurveAppMainGUI(tki.Frame) :
 	"""
@@ -88,6 +96,10 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.watchlist = [False,[600,-1],[-1,-1]]
 		self.DBpath = None
 
+		self.file_opt = {}
+		self.file_opt['initialdir'] = params['initialdir']
+		self.file_opt['filetypes'] = [('database files','.sqlite3'),('all files','.*')]
+
 		tki.Frame.__init__(self, root)
 		self.root = root
 		self.pack()
@@ -112,11 +124,6 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		self.LearningCurveCanvas.get_tk_widget().pack(fill=tki.BOTH,expand=True,side=tki.TOP)
 		self.CrossSectionButton.pack(side=tki.TOP,pady=25)
 
-		self.file_opt = {}
-		self.file_opt['initialdir'] = params['initialdir']
-		self.file_opt['filetypes'] = [('database files','.sqlite3'),('all files','.*')]
-		self.file_opt['title'] = 'Select a email database file or create a new one'
-
 		self.DBobj = EmailSamplesDB(params['sqlpath'],params['pragmapath'],params['tempsqlpath'])
 		self.StartPlotWorker()
 		return
@@ -136,8 +143,8 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		filemenu.add_command(label="Open Database...", command=self.OpenDB)
 		filemenu.add_command(label="Close Database", command=self.CloseDB)
 		filemenu.add_separator()
-		filemenu.add_command(label="Load Word List from File...")
-		filemenu.add_command(label="Save Word List to File...")
+		filemenu.add_command(label="Load Word List from File...", command=self.LoadWordList)
+		filemenu.add_command(label="Save Word List to File...", command=self.SaveWordList)
 		filemenu.add_separator()
 		filemenu.add_command(label="Save SVM")
 		filemenu.add_command(label="Save SVM as...")
@@ -146,14 +153,20 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		menubar.add_cascade(label="File", menu=filemenu)
 
 		editmenu = tki.Menu(menubar, tearoff=0)
-		editmenu.add_command(label="Add Samples to DB...")
-		editmenu.add_command(label="Add Dictionary to DB...")
-		editmenu.add_command(label="Select Words for List...")
-		editmenu.add_command(label="Set SQL Command Paths...")
+		editmenu.add_command(label="Add Samples to DB...", command=self.DBBuild)
+		editmenu.add_separator()
+		editmenu.add_command(label="Add Dictionary to DB...", command=self.AddDict)
+		editmenu.add_command(label="Update Dictionary in DB...", command=self.UpdateDict)
+		editmenu.add_command(label="Remove Dictionary from DB...", command=self.RemoveDict)
+		editmenu.add_separator()
+		editmenu.add_command(label="Select Words for List...", command=self.AddWordList)
+		editmenu.add_command(label="Remove Word List from DB...", command=self.RemoveWordList)
+		editmenu.add_separator()
+		editmenu.add_command(label="Set SQL Command Paths...", command=self.ResetSQL)
 		menubar.add_cascade(label="Edit", menu=editmenu)
 
 		helpmenu = tki.Menu(menubar, tearoff=0)
-		helpmenu.add_command(label="About...")
+		helpmenu.add_command(label="About...", command=self.About)
 		menubar.add_cascade(label="Help", menu=helpmenu)
 
 		return menubar
@@ -280,18 +293,20 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		Ask for a filename to create a new database file, then create a new database and initialize
 		the required tables.
 		"""
+		self.file_opt['title'] = 'Create a new email database file'
 		filename = tkFileDialog.asksaveasfilename(**self.file_opt)
-		self.DBpath = filename
-		logging.debug('Connecting to database at %s'%filename)
-		self.DBobj.ConnectDB(filename)
-		logging.debug('Result: %s'%self.DBobj.DB_Connect)
-		try :
-			logging.debug('Creating fresh database at %s'%filename)
-			self.DBobj.CreateDB()
-		finally :
-			logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
-			self.DBobj.DisconnectDB()
+		if filename :
+			self.DBpath = filename
+			logging.debug('Connecting to database at %s'%filename)
+			self.DBobj.ConnectDB(filename)
 			logging.debug('Result: %s'%self.DBobj.DB_Connect)
+			try :
+				logging.debug('Creating fresh database at %s'%filename)
+				self.DBobj.CreateDB()
+			finally :
+				logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
+				self.DBobj.DisconnectDB()
+				logging.debug('Result: %s'%self.DBobj.DB_Connect)
 		return
 
 	def OpenDB(self) :
@@ -299,10 +314,10 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		Open a feature vector database file, extract the available word lists that feature vectors can be
 		created against, and populate the word list drop down menu
 		"""
+		self.file_opt['title'] = 'Select an existing email database file'
 		filename = tkFileDialog.askopenfilename(**self.file_opt)
-		self.DBpath = filename
-		WordLists = self.GetWordLists(filename)
-		self.UpdateWordListDropDown(WordLists)
+		if filename :
+			self.SetDB(filename)
 		return
 
 	def CloseDB(self) :
@@ -313,8 +328,176 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		"""
 		assert self.DBobj.DB_Connect is None, "Expected database connection to already be closed, but it wasn't"
 		self.DBPath = None
+		self.DBobj.DBPath = None
 		self.UpdateWordListDropDown(None)
 		return
+
+	def LoadWordList(self) :
+		"""
+		Load a word list to the database
+		"""
+		try :
+			file_opt = {'initialdir':self.file_opt['initialdir'],
+			    		'filetypes':[('text files','.txt'),('all files','.*')],
+						'title':'Load word list...',
+		           		'parent':self.root}
+			filename = tkFileDialog.askopenfilename(**file_opt)
+			if filename :
+				self.DBobj.ConnectDB()
+				self.DBobj.LoadWords(filename)
+				self.DBobj.DisconnectDB()
+				self.SetDB(self.DBpath)
+		except Exception as detail :
+			logging.error(detail)
+		return
+
+	def SaveWordList(self) :
+		"""
+		Save a word list from the database
+		"""
+		try :
+			EndConnection = WordListSelectGUI(self.root,self.DBobj)
+			list_id = EndConnection.result
+			logging.debug("Got list id: %s"%str(list_id))
+			if list_id  is not None :
+				file_opt = {'initialdir':self.file_opt['initialdir'],
+				    		'filetypes':[('text files','.txt'),('all files','.*')],
+							'title':'Save word list as...',
+							'defaultextension':'.txt',
+		            		'parent':self.root}
+				filename = tkFileDialog.asksaveasfilename(**file_opt)
+				if filename :
+					self.DBobj.ConnectDB()
+					self.DBobj.WriteWords(list_id,filename)
+					self.DBobj.DisconnectDB()
+		except Exception as detail :
+			logging.error(detail)
+		return
+
+	def DBBuild(self) :
+		"""
+		Displays the database building dialog
+		"""
+		logging.debug("Opening the database building GUI")
+		if self.DBpath is not None :
+			initdir = os.path.dirname(self.DBpath)
+		else :
+			initdir = os.path.abspath(r'.')
+		EndConnection = DBBuildGUI(self.root,self.DBobj,initialdir=initdir)
+		filename = EndConnection.result
+		if filename != self.DBpath :
+			if filename :
+				self.SetDB(filename)
+			else :
+				self.CloseDB()
+		return
+	
+	def AddDict(self) :
+		"""
+		Create a new dictionary in the database and update it with the available
+		training samples already in the database
+		"""
+		EndConnection = DictAddGUI(self.root,self.DBobj,"Add a dictionary")
+		DictReadableName = EndConnection.result
+		if DictReadableName is not None:
+			self.DBobj.ConnectDB()
+			dict_id = self.DBobj.CreateDict(DictReadableName)
+			self.DBobj.DisconnectDB()
+
+			def cmd(*args) :
+				self.DBobj.ConnectDB()
+				self.DBobj.UpdateDict(*args)
+				self.DBobj.DisconnectDB()
+			CountSamps = SQLCMDObj(self.DBobj,"CountSelectNewTrainingBodies",(dict_id,))
+			SelectSamps = SQLCMDObj(self.DBobj,"SelectNewTrainingBodies",(dict_id,))
+			args = [dict_id,CountSamps,SelectSamps]
+			ProgressWindow(self.root,cmd,*args,title="Updating the dictionary using training samples")
+
+	def UpdateDict(self) :
+		"""
+		Update a dictionary in the database with newly available training samples
+		"""
+		EndConnection = DictSelectGUI(self.root,self.DBobj,"Update a dictionary")
+		dict_id = EndConnection.result
+		if dict_id is not None :
+			def cmd(*args) :
+				self.DBobj.ConnectDB()
+				self.DBobj.UpdateDict(*args)
+				self.DBobj.DisconnectDB()
+			CountSamps = SQLCMDObj(self.DBobj,"CountSelectNewTrainingBodies",(dict_id,))
+			SelectSamps = SQLCMDObj(self.DBobj,"SelectNewTrainingBodies",(dict_id,))
+			args = [dict_id,CountSamps,SelectSamps]
+			ProgressWindow(self.root,cmd,*args,title="Updating the dictionary using new training samples")
+
+	def RemoveDict(self) :
+		"""
+		Delete a dictionary from the database
+		"""
+		EndConnection = DictRemoveGUI(self.root,self.DBobj,"Remove a dictionary")
+		dict_id = EndConnection.result
+		logging.debug("Got dictionary id: %s"%str(dict_id))
+		if dict_id  is not None :
+			self.DBobj.ConnectDB()
+			self.DBobj.DeleteDict(dict_id)
+			self.DBobj.DisconnectDB()
+			self.SetDB(self.DBpath)
+
+	def AddWordList(self) :
+		"""
+		Create a new word list in the database and update it with words from a dictionary
+		"""
+		EndConnection = WordListAddGUI(self.root,self.DBobj,"Add a word list")
+		if EndConnection.result is not None :
+			WordListReadableName,dict_id,MinPerc,MaxPerc = EndConnection.result
+		else :
+			WordListReadableName = EndConnection.result
+		if WordListReadableName is not None:
+			self.DBobj.ConnectDB()
+			list_id = self.DBobj.CreateWordList(WordListReadableName,dict_id)
+			if not ((MinPerc == 0) and (MaxPerc == 1)) :
+				self.DBobj.SetParams(MinCountFrac=MinPerc,MaxCountFrac=MaxPerc)
+				self.DBobj.UpdateWordList(list_id,True)
+			else :
+				self.DBobj.UpdateWordList(list_id,False)
+			self.DBobj.DisconnectDB()
+			self.SetDB(self.DBpath)
+
+	def RemoveWordList(self) :
+		"""
+		Delete a word list from the database
+		"""
+		EndConnection = WordListSelectGUI(self.root,self.DBobj,"Remove a word list")
+		list_id = EndConnection.result
+		logging.debug("Got list id: %s"%str(list_id))
+		if list_id  is not None :
+			self.DBobj.ConnectDB()
+			self.DBobj.DeleteWordList(list_id)
+			self.DBobj.DisconnectDB()
+			self.SetDB(self.DBpath)
+
+	def ResetSQL(self) :
+		"""
+		Create a database object with new SQL commands
+		"""
+		params = {'MainDBCMDs':self.DBobj.params['MainDBCMDs'],
+		          'PragmaCMDs':self.DBobj.params['PragmaCMDs'],
+		          'TempDBCMDs':self.DBobj.params['TempDBCMDs']}
+		EndConnection = SQLCMDSetupGUI(self.root,**params)
+		if EndConnection.result is not None :
+			logging.debug("Loading new SQL commands")
+			params = self.DBobj.params
+			params.pop('MainDBCMDs',None)
+			params.pop('PragmaCMDs',None)
+			params.pop('TempDBCMDs',None)
+			del self.DBobj
+			self.DBobj = EmailSamplesDB(*EndConnection.result,**params)
+			self.DBobj.DBpath = self.DBpath
+
+	def About(self) :
+		"""
+		Display a message with details about this software
+		"""
+		tkMessageBox.showinfo("About",u"Version %s\n\u00a9 2016 Joseph R. Cole, Ph.D.\nunder The MIT License\njoecole889@gmail.com"%self.params['version'])
 
 # Functions that update user drop down lists in the GUI
 	def UpdateCostList(self,_=None) :
@@ -365,7 +548,7 @@ class LearningCurveAppMainGUI(tki.Frame) :
 		("table name in the database for the word list","a human readable name for the word list")
 		"""
 		self.WordListsVal['menu'].delete(0,'end')
-		if NewList is not None :
+		if (NewList is not None) and (len(NewList) > 0) :
 			self.WordListsVar.set(str(NewList[0][0]))
 			for choice,readable in NewList :
 				choicestr = '%s: %s'%(choice,readable)
@@ -374,6 +557,14 @@ class LearningCurveAppMainGUI(tki.Frame) :
 			self.WordListsVar.set('')
 
 		return
+
+	def SetDB(self,filename) :
+		"""
+		Sets the database path and updates the word list drop down menu
+		"""
+		self.DBpath = filename
+		WordLists = self.GetWordLists(filename)
+		self.UpdateWordListDropDown(WordLists)
 
 # Functions to get user input from the GUI
 	def GetStep(self) :
@@ -455,6 +646,23 @@ class LearningCurveAppMainGUI(tki.Frame) :
 			logging.debug('Result: %s'%self.DBobj.DB_Connect)
 		return WordLists
 
+	def GetDicts(self,filename) :
+		"""
+		Return a list of database tables with the feature vector word lists
+
+		filename - a path to the current database in use (usually self.DBpath)
+		"""
+		logging.debug('Connecting to database at %s'%filename)
+		self.DBobj.ConnectDB(filename)
+		logging.debug('Result: %s'%self.DBobj.DB_Connect)
+		try :
+			Dicts = self.DBobj.GetAvailableDicts()
+		finally :
+			logging.debug('Disconnecting database at %s'%self.DBobj.DB_Connect)
+			self.DBobj.DisconnectDB()
+			logging.debug('Result: %s'%self.DBobj.DB_Connect)
+		return Dicts
+
 # Functions to start other threads
 	def Go(self,_=None) :
 		"""
@@ -477,6 +685,19 @@ class LearningCurveAppMainGUI(tki.Frame) :
 				return
 
 			listchoice = self.WordListsVar.get()
+			self.DBobj.ConnectDB()
+			ListName,list_id,DictRef,DictName = self.DBobj.ResolveListRef(listchoice)
+			self.DBobj.DisconnectDB()
+
+			# Check if all the feature vectors are available
+			def cmd(*args) :
+				self.DBobj.ConnectDB()
+				self.DBobj.MakeFeatureVecs(*args)
+				self.DBobj.DisconnectDB()
+			CountSamps = SQLCMDObj(self.DBobj,"CountSelectBodiesMissingFeatures",(list_id,))
+			SelectSamps = SQLCMDObj(self.DBobj,"SelectBodiesMissingFeatures",(list_id,))
+			args = [listchoice,CountSamps,SelectSamps]
+			ProgressWindow(self.root,cmd,*args,title="Adding missing feature vectors")
 
 			ParamSpace = dict()	#parameter space to check with trained algorithm instances
 			ParamSpace['Step'] = step
@@ -591,23 +812,24 @@ if __name__ == "__main__" :
 	parser = argparse.ArgumentParser(description='Learning curve GUI for training SVMs to classify SPAM')
 	parser.add_argument('--pragmapath','-p',
 			            help='path to a json file with the PRAGMA commands for the database',
-						default='.\DBSetup_SQL.json')
+						default=os.path.abspath(r'.\DBSetup_SQL.json'))
 	parser.add_argument('--sqlpath','-s',
 			            help='path to a json file with the SQL commands for the database',
-						default='.\EmailSamplesDB_SQL.json')
+						default=os.path.abspath(r'.\EmailSamplesDB_SQL.json'))
 	parser.add_argument('--tempsqlpath','-t',
 			            help='path to a json file with the SQL commands for temp databases',
-						default='.\TempDB_SQL.json')
+						default=os.path.abspath(r'.\TempDB_SQL.json'))
 	parser.add_argument('--initialdir','-d',
 			            help='path to an initial directory to start looking for files',
-						default='.')
-	parser.add_argument('--version', action='version', version='%(prog)s 1.0')
+						default=os.path.abspath(r'.'))
+	parser.add_argument('--version', action='version', version='%(prog)s '+__version__)
 	paramsobj = parser.parse_args()
 	params = vars(paramsobj)
+	params['version'] = __version__
 
 	root = tki.Tk()
 	root.wm_title("Learning Curve Analysis")
-	icon_image = tki.Image("photo",file=r".\MainGUI.gif")
+	icon_image = tki.Image("photo",file=os.path.abspath(r".\MainGUI.gif"))
 	root.tk.call('wm','iconphoto',root._w,icon_image)
 	MainWinHan = LearningCurveAppMainGUI(root,**params)
 	root.mainloop()

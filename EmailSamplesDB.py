@@ -27,7 +27,9 @@ class EmailSamplesDB :
 	generically to serve as a base class that provides the interface to the LearningCurveAppMainGUI. A 
 	developer could then inherit from this class to connect to any given feature vector database.  Currently,
 	this class works with the email/spam feature vector database used in the tutorial.  All SQL commands are
-	placed in an external JSON file so that the queries do not need to be hard coded.
+	placed in an external JSON file so that the queries do not need to be hard coded.  The SQLCMDObj abstracts
+	the SQL commands from the JSON file so that an external application can pass both the command along with
+	its necessary parameters at the same time into this class's methods.
 	"""
 	DB_Connect = None
 	DB_Cursor = None
@@ -50,6 +52,8 @@ class EmailSamplesDB :
 
 			params['CommitFreq'] -
 				number of writes to add to the database journal before a commit when doing large blocks of writes
+			params['ProgFreq'] -
+				number of files to add to the database before signalling the progress bar queue in AddToDB()
 			params['TempDBCMDs'] -
 				stores the tempsqlcmdpath for use with the temporary database when needed
 			params['MinCountFrac'] -
@@ -76,11 +80,11 @@ class EmailSamplesDB :
 		"""
 		self.DBpath = None
 		self.DBlock = threading.Lock()
-		self.params['CommitFreq'] = 200
+		self.params['MainDBCMDs'] = sqlcmdpath
+		self.params['PragmaCMDs'] = pragmacmdpath
 		self.params['TempDBCMDs'] = tempsqlcmdpath
-		self.params['MaxCountFrac'] = 0.003
-		self.params['MinCountFrac'] = 0.00003
-		self.params.update(params)
+		self.SetParams(**params)
+
 		try :
 			fhan = open(sqlcmdpath)
 			SQLCMDStr = fhan.read()
@@ -97,6 +101,14 @@ class EmailSamplesDB :
 			logging.error("Unable to load PRAGMA commands from %s: %s"%(pragmacmdpath,detail))
 		return
 
+	def SetParams(self,**params) :
+		self.params['CommitFreq'] = self.params.get('CommitFreq',200)
+		self.params['ProgFreq'] = self.params.get('ProgFreq',100)
+		self.params['MaxCountFrac'] = self.params.get('MaxCountFrac',0.003)
+		self.params['MinCountFrac'] = self.params.get('MinCountFrac',0.00003)
+		self.params.update(params)
+		return
+
 	def __del__(self) :
 		"""
 		Automatically ensures the database connection is closed and the lock is released when all
@@ -108,13 +120,16 @@ class EmailSamplesDB :
 			self.DBlock.release()
 		return
 
-	def ConnectDB(self,DBpath) :
+	def ConnectDB(self,DBpath=None) :
 		"""
 		Setup a connection to an sqlite3 feature vector database file. Remember to close immediately
 		once your read or write is complete or other threads won't be able to use the database.
 
 		DBpath - path to the database file to connect
 		"""
+		if DBpath is None :
+			DBpath = self.DBpath
+		logging.info("Attempting to connect to %s"%DBpath)
 		try :
 			assert self.DB_Connect is None, "Need to close previous connection first."
 			got_lock = self.DBlock.acquire(False)	# Non blocking form of threading.Lock.acquire()
@@ -129,7 +144,7 @@ class EmailSamplesDB :
 			self.DisconnectDB()
 		return
 
-	def ConnectDBblk(self,DBpath) :
+	def ConnectDBblk(self,DBpath=None) :
 		"""
 		Setup a connection to an sqlite3 feature vector database file. Remember to close immediately
 		once your read or write is complete or other threads won't be able to use the database. This
@@ -138,6 +153,9 @@ class EmailSamplesDB :
 
 		DBpath - path to the database file to connect
 		"""
+		if DBpath is None :
+			DBpath = self.DBpath
+		logging.info("Attempting to connect to %s"%DBpath)
 		try :
 			assert self.DB_Connect is None, "Need to close previous connection first."
 			self.DBlock.acquire()	# Blocking form of threading.Lock.acquire()
@@ -200,14 +218,17 @@ class EmailSamplesDB :
 			self.DB_Cursor.execute(self.SQLCMDs['SelectDictTables'])
 			DictTables = self.DB_Cursor.fetchall()
 			for table in DictTables :
-				self.DB_Cursor.execute(self.SQLCMDs['DropTable']%table)
+				logging.debug("Dropping %s"%table[0])
+				self.DB_Cursor.execute(self.SQLCMDs['DropTable']%table[0])
 
 			self.DB_Cursor.execute(self.SQLCMDs['SelectWordLists'])
 			WordListTables = self.DB_Cursor.fetchall()
 			for table in WordListTables :
+				logging.debug("Dropping %s"%table[0])
 				self.DB_Cursor.execute(self.SQLCMDs['DropTable']%table[0])
 
 			for table in self.SQLCMDs['TableList'] :
+				logging.debug("Dropping %s"%table)
 				self.DB_Cursor.execute(self.SQLCMDs['DropTable']%(table,))
 
 			self.DB_Connect.commit()
@@ -215,7 +236,7 @@ class EmailSamplesDB :
 			logging.error("Failed to reset the database: %s"%detail.message)
 		return
 
-	def AddToDB(self,dirpath,classname,samp_distr_targ) :
+	def AddToDB(self,dirpath,classname,samp_distr_targ,trackbar=None) :
 		"""
 		Add new sample emails to a database. No processing of the emails is done except to attempt
 		conversion to utf-8.
@@ -230,6 +251,9 @@ class EmailSamplesDB :
 			based on the number of new samples provided and the current distribution between sets of 
 			samples already in the database. Each value in the tuple should be in the range [0,1], and
 			the total of all values in the tuple should be 1.
+		trackbar -
+			an optional reference to a ProgressWindow object that allows the user to view the progress
+			of adding the files to the database and to cancel adding if needed
 		"""
 		CurSampleCount = self.GetSampleCount()
 		try :
@@ -258,6 +282,12 @@ class EmailSamplesDB :
 					body = emailstr[HeaderSepPos+2:].decode('utf-8','ignore')
 					order = random.randrange(2**(32-1) - 1)	# a value assigned to help ensure all classes of samples are drawn randomly from the database
 					self.DB_Cursor.execute(self.SQLCMDs['InsertSample'],(ii+CurSampleCount,filename,head,body,classid,SetAssignments[ii],order))
+					if trackbar is not None :
+						if trackbar.stopped() :
+							logging.debug("Breaking loop due to cancel signal")
+							break
+						if not bool((ii+1)%self.params['ProgFreq']) :
+							trackbar.put(float(self.params['ProgFreq'])/NumSamples*100)
 			self.DB_Connect.commit()
 		except TypeError as detail :
 			logging.critical(detail.message)
@@ -275,6 +305,9 @@ class EmailSamplesDB :
 
 		readable_name - a human readable name to assign to the table that is saved alongside the automatically
 		generated name used in the database
+
+		return values:
+			returns the database id of the dictionary
 		"""
 		try :
 			self.DB_Cursor.execute(self.SQLCMDs['DictMax'])
@@ -300,18 +333,12 @@ class EmailSamplesDB :
 		generated name used in the database
 		DictRef - a reference to the dictionary table in the database from which the words in this list are
 		taken
+
+		return values:
+			returns the database id of the new word list
 		"""
 		try :
-			if isinstance(DictRef,str) :
-				DictName = DictRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectDictID'],(DictRef,))
-				dict_id = self.DB_Cursor.fetchone()[0]
-			elif isinstance(DictRef,int) :
-				dict_id = DictRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectDictTable'],(DictRef,))
-				DictName = self.DB_Cursor.fetchone()[0]
-			else :
-				raise TypeError("DictName must be str or int")
+			DictName,dict_id = self.ResolveDictRef(DictRef)
 			self.DB_Cursor.execute(self.SQLCMDs['WordListMax'])
 			NextKey = self.DB_Cursor.fetchone()[0]
 			if NextKey is not None :
@@ -326,6 +353,41 @@ class EmailSamplesDB :
 			logging.error("Failed to create a new word list table: %s"%detail)
 		return NextKey
 
+	def DeleteWordList(self,WordListRef) :
+		"""
+		Removes a word list from the database
+
+		WordListRef - a reference to the word list table to save
+		"""
+		try :
+			ListName,list_id,DictRef,DictName = self.ResolveListRef(WordListRef)
+			logging.debug("Removing references to %s"%ListName)
+			self.DB_Cursor.execute(self.SQLCMDs['DeleteFeaturesFromWordList'],(list_id,))
+			self.DB_Cursor.execute(self.SQLCMDs['DropTable']%ListName)
+			self.DB_Cursor.execute(self.SQLCMDs['DeleteWordList'],(list_id,))
+			self.DB_Connect.commit()
+		except Exception as detail :
+			logging.error(detail)
+			self.DB_Connect.rollback()
+		return
+
+	def DeleteDict(self,DictRef) :
+		try :
+			DictName,dict_id = self.ResolveDictRef(DictRef)
+			logging.debug("Removing references to %s"%DictName)
+			self.DB_Cursor.execute(self.SQLCMDs['SelectDictDependents'],(dict_id,))
+			DependentWordLists = self.DB_Cursor.fetchall()
+			for WordList in DependentWordLists :
+				self.DeleteWordList(WordList[0])
+			self.DB_Cursor.execute(self.SQLCMDs['DeleteBuildRecords'],(dict_id,))
+			self.DB_Cursor.execute(self.SQLCMDs['DropTable']%DictName)
+			self.DB_Cursor.execute(self.SQLCMDs['DeleteDict'],(dict_id,))
+			self.DB_Connect.commit()
+		except Exception as detail :
+			logging.error(detail)
+			self.DB_Connect.rollback()
+		return
+
 	def WriteWords(self,WordListRef,FileName) :
 		"""
 		Save a word list from the database out to a text file.
@@ -334,30 +396,16 @@ class EmailSamplesDB :
 		FileName - the name (full path) of the file to save
 		"""
 		try :
-			if isinstance(WordListRef,str) :
-				ListName = WordListRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectWordListID'],(WordListRef,))
-				list_id = self.DB_Cursor.fetchone()[0]
-			elif isinstance(WordListRef,int) :
-				list_id = WordListRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectWordList'],(WordListRef,))
-				ListName = self.DB_Cursor.fetchone()[0]
-			else :
-				raise TypeError("ListName must be str or int")
-			self.DB_Cursor.execute(self.SQLCMDs['SelectDictRef'],(list_id,))
-			DictRef = self.DB_Cursor.fetchone()[0]
-			self.DB_Cursor.execute(self.SQLCMDs['SelectDictTable'],(DictRef,))
-			DictName = self.DB_Cursor.fetchone()[0]
+			ListName,list_id,DictRef,DictName = self.ResolveListRef(WordListRef)
 			self.DB_Cursor.execute(self.SQLCMDs['SelectFeatures']%(DictName,ListName))
 			WordList = self.DB_Cursor.fetchall()
 		except Exception as detail :
 			logging.error("Failed to grab dictionary words for writing to file.")
 
 		try :
-			fhan = open(FileName,'w')
-			for Word in WordList :
-				fhan.write('%s\n' % Word[0])
-			fhan.close()
+			with open(FileName,'w') as fhan :
+				for Word in WordList :
+					fhan.write('%s\n' % Word[0])
 		except Exception as detail :
 			logging.error("Failed to write the file %s: %s"%(FileName,detail))
 		return
@@ -370,9 +418,8 @@ class EmailSamplesDB :
 		FileName - the name (full path) of the file to load
 		"""
 		try :
-			fhan = open(FileName,'r')
-			Words = fhan.read()
-			fhan.close()
+			with open(FileName,'r') as fhan :
+				Words = fhan.read()
 		except Exception as detail :
 			logging.error("Failed to read file %s: %s"%(FileName,detail))
 		try :
@@ -384,12 +431,14 @@ class EmailSamplesDB :
 			DictName = self.DB_Cursor.fetchone()[0]
 			self.DB_Cursor.executemany(self.SQLCMDs['InsertAllWordsToDict']%DictName,WordList)
 			self.DB_Connect.commit()
+			list_id = self.CreateWordList(FileName,DictRef)
+			self.UpdateWordList(list_id,False)
 		except Exception as detail :
 			logging.error("Failed to add words to the new dictionary: %s"%detail)
 			self.DB_Connect.rollback()
 		return DictRef
 
-	def UpdateDict(self,DictRef,sqlcmdname) :
+	def UpdateDict(self,DictRef,countsqlcmdobj,sqlcmdobj,trackbar=None) :
 		"""
 		Process samples in the training set to update a dictionary with words and their frequency of
 		occurance.
@@ -397,26 +446,23 @@ class EmailSamplesDB :
 		DictRef -
 			a reference to the dictionary table in the database from which the words in this list are
 			taken
-		sqlcmdname -
+		countsqlcmdobj -
+			used to count the number of samples to use to update the dictionary in case a trackbar is
+			displayed. This parameter is a reference to an SQLCMDObj so the user can update the SQL
+			query used.
+		sqlcmdobj -
 			if calls to AddToDB() and UpdateDict() are interleaved, it is up to the SQL query used to
 			make sure that an email sample is not double counted in the dictionary histogram. This
-			parameter is a key to the SQLCMD dictionary so the user can update the SQL query used.
+			parameter is a reference to an SQLCMDObj so the user can update the SQL query used.
 			Samples used to create a dictionary are tracked in a separate table in the database.
+		trackbar -
+			a hook for showing the progress of the loop in a dialog window; should not be set manually.
+			Use with the ProgressWindow class if needed.
 		"""
 		# TODO: Rewrite this function to avoid using a temporary database by using an SQL query
 		#       with LIMIT and OFFSET.  Test which method is faster.
 		try :
-			if isinstance(DictRef,str) :
-				DictName = DictRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectDictID'],(DictRef,))
-				dict_id = self.DB_Cursor.fetchone()[0]
-			elif isinstance(DictRef,int) :
-				dict_id = DictRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectDictTable'],(DictRef,))
-				DictName = self.DB_Cursor.fetchone()[0]
-			else :
-				raise TypeError("DictName must be str or int")
-
+			DictName,dict_id = self.ResolveDictRef(DictRef)
 			#pdb.set_trace()
 			# Setup temporary database
 			tmpdb = TempDB(self.params['TempDBCMDs'])
@@ -438,25 +484,39 @@ class EmailSamplesDB :
 			tmpdb.ConnectDB()
 			# Loop over samples in persistent db and update tables in tempdb
 			CommitCount = 0
-			for sample_id,SampleBody in self.DB_Cursor.execute(self.SQLCMDs[sqlcmdname],(dict_id,)) :
-				logging.debug("Working on: %d"%sample_id)
-				logging.debug("Inserting row to dictionary build table")
+			ProgUpdateCount = 0
+			if trackbar is not None :
+				countsqlcmdobj.run()
+				NumSamples = self.DB_Cursor.fetchone()[0]
+				logging.debug("Updating dictionary with %d samples"%NumSamples)
+			for sample_id,SampleBody in sqlcmdobj.run() :
+				#logging.debug("Working on: %d"%sample_id)
+				#logging.debug("Inserting row to dictionary build table")
 				tmpdb.RunCommand(tmpdb.SQLCMDs['InsertUsed'],(sample_id,dict_id))
-				logging.debug("Counting email body words")
+				#logging.debug("Counting email body words")
 				SampleWordCounts = FeatureVecGen.ParetoWords(SampleBody)
-				logging.debug("Looping over the words")
+				#logging.debug("Looping over the words")
 				for Word in SampleWordCounts.keys() :
 					tmpdb.RunCommand(tmpdb.SQLCMDs['RetrieveWordCount']%DictName,(Word,))
 					OldCount = tmpdb.DB_Cursor.fetchone()
 					if OldCount is not None :
 						SampleWordCounts[Word] = SampleWordCounts[Word] + OldCount[0]
-				logging.debug("Updating the word counts")
+				#logging.debug("Updating the word counts")
 				if CommitCount != self.params['CommitFreq'] :
 					CommitCount += 1
 					tmpdb.RunCommands(tmpdb.SQLCMDs['UpdateWordCount']%DictName,SampleWordCounts.items(),False)
 				else :
 					tmpdb.RunCommands(tmpdb.SQLCMDs['UpdateWordCount']%DictName,SampleWordCounts.items(),True)
 					CommitCount = 0
+				if trackbar is not None :
+					if trackbar.stopped() :
+						logging.debug("Breaking loop due to cancel signal")
+						break
+					if ProgUpdateCount != self.params['ProgFreq']-1 :
+						ProgUpdateCount += 1
+					else :
+						trackbar.put(float(self.params['ProgFreq'])/NumSamples*100)
+						ProgUpdateCount = 0
 			tmpdb.DB_Connect.commit()
 			tmpdb.DisconnectDB()
 
@@ -493,20 +553,7 @@ class EmailSamplesDB :
 			dictionary should be added to the list (False)
 		"""
 		try :
-			if isinstance(WordListRef,str) :
-				ListName = WordListRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectWordListID'],(WordListRef,))
-				list_id = self.DB_Cursor.fetchone()[0]
-			elif isinstance(WordListRef,int) :
-				list_id = WordListRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectWordList'],(WordListRef,))
-				ListName = self.DB_Cursor.fetchone()[0]
-			else :
-				raise TypeError("WordListRef must be str or int")
-			self.DB_Cursor.execute(self.SQLCMDs['SelectDictRef'],(list_id,))
-			DictRef = self.DB_Cursor.fetchone()[0]
-			self.DB_Cursor.execute(self.SQLCMDs['SelectDictTable'],(DictRef,))
-			DictName = self.DB_Cursor.fetchone()[0]
+			ListName,list_id,DictRef,DictName = self.ResolveListRef(WordListRef)
 			if WordFilter == True :
 				self.DB_Cursor.execute(self.SQLCMDs['TotalWordCount']%DictName)
 				TotalCount = self.DB_Cursor.fetchone()[0]
@@ -520,33 +567,25 @@ class EmailSamplesDB :
 			logging.error("Failed to update word list %s: %s"%(ListName,detail))
 			self.DB_Connect.rollback()
 
-	def MakeFeatureVecs(self,WordListRef,sqlcmdname) :
+	def MakeFeatureVecs(self,WordListRef,countsqlcmdobj,sqlcmdobj,trackbar=None) :
 		"""
 		Create feature vectors against a given word list. Uses a FeatureVecGen object as an engine for
 		creating the feature vector given an email sample body.
 		
 		WordListRef -
 			a reference to the word list table to save
-		sqlcmdname -
-			this parameter is a key to the SQLCMD dictionary so the user can update the SQL query used
-			to select samples for which to create feature vectors. Typical usage would be to SELECT
-			all the available samples in the database for all classes.
+		countsqlcmdobj -
+			this parameter is an SQLCMDObj with the sql command to run along with it's bindings. Used
+			to count the samples for which to create feature vectors.
+		sqlcmdobj -
+			this parameter is an SQLCMDObj with the sql command to run along with it's bindings. Used
+			to select samples for which to create feature vectors.
+		trackbar -
+			a hook for showing the progress of the loop in a dialog window; should not be set manually.
+			Use with the ProgressWindow class if needed.
 		"""
 		try :
-			if isinstance(WordListRef,str) :
-				ListName = WordListRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectWordListID'],(WordListRef,))
-				list_id = self.DB_Cursor.fetchone()[0]
-			elif isinstance(WordListRef,int) :
-				list_id = WordListRef
-				self.DB_Cursor.execute(self.SQLCMDs['SelectWordList'],(WordListRef,))
-				ListName = self.DB_Cursor.fetchone()[0]
-			else :
-				raise TypeError("WordListRef must be str or int")
-			self.DB_Cursor.execute(self.SQLCMDs['SelectDictRef'],(list_id,))
-			DictRef = self.DB_Cursor.fetchone()[0]
-			self.DB_Cursor.execute(self.SQLCMDs['SelectDictTable'],(DictRef,))
-			DictName = self.DB_Cursor.fetchone()[0]
+			ListName,list_id,DictRef,DictName = self.ResolveListRef(WordListRef)
 
 			#Get the feature vector word list
 			self.DB_Cursor.execute(self.SQLCMDs['SelectFeatures']%(DictName,ListName))
@@ -572,18 +611,34 @@ class EmailSamplesDB :
 			tmpdb.ConnectDB()
 			# Loop over samples in persistent db and update tables in tempdb
 			CommitCount = 0
-			for sample_id,SampleBody in self.DB_Cursor.execute(self.SQLCMDs[sqlcmdname]) :
-				logging.debug("Working on: %d"%sample_id)
+			ProgUpdateCount = 0
+			logging.debug("Counting samples")
+			if trackbar is not None :
+				countsqlcmdobj.run()
+				NumSamples = self.DB_Cursor.fetchone()[0]
+				logging.debug("Creating feature vectors for %d samples"%NumSamples)
+			for sample_id,SampleBody in sqlcmdobj.run() :
+				#logging.debug("Working on: %d"%sample_id)
 				featurevec = FeatureMaker.MakeVec(SampleBody)
 				featureserial = buffer(cPickle.dumps(featurevec))
-				logging.debug("Inserting row to feature table")
+				#logging.debug("Inserting row to feature table")
 				if CommitCount != self.params['CommitFreq'] :
 					CommitCount += 1
 					tmpdb.RunCommand(tmpdb.SQLCMDs['InsertFeature'],(sample_id,list_id,featureserial),False)
 				else :
 					tmpdb.RunCommand(tmpdb.SQLCMDs['InsertFeature'],(sample_id,list_id,featureserial),True)
 					CommitCount = 0
+				if trackbar is not None :
+					if trackbar.stopped() :
+						logging.debug("Breaking loop due to cancel signal")
+						break
+					if ProgUpdateCount != self.params['ProgFreq']-1 :
+						ProgUpdateCount += 1
+					else :
+						trackbar.put(float(self.params['ProgFreq'])/NumSamples*100)
+						ProgUpdateCount = 0
 			tmpdb.DB_Connect.commit()
+			logging.debug("Done adding new features to tmpDB")
 			tmpdb.DisconnectDB()
 
 			#pdb.set_trace()
@@ -619,9 +674,10 @@ class EmailSamplesDB :
 				SetIDs[ii] = self.DB_Cursor.fetchone()[0]
 				self.DB_Cursor.execute(self.SQLCMDs['SampleSetCount'],(SetIDs[ii],))
 				SetDistr[ii] = float(self.DB_Cursor.fetchone()[0])
-		except :
-			logging.critical("Failed to retrieve sample set distribution")
-			exit()
+		except Exception as detail :
+			logging.info("Failed to retrieve sample set distribution: %s"%detail)
+			SetIDs = (0,1,2)
+			SetDistr = (0,0,0)
 		return SetIDs,SetDistr
 
 	def GetSampleCount(self) :
@@ -631,6 +687,7 @@ class EmailSamplesDB :
 		Return values:
 			CurSampleCount - integer number of samples in the database
 		"""
+		CurSampleCount = 0
 		try :
 			self.DB_Cursor.execute(self.SQLCMDs['SampleCount'])
 			CurSampleCount = self.DB_Cursor.fetchone()[0]
@@ -667,6 +724,21 @@ class EmailSamplesDB :
 			logging.error("Failed to return word lists: %s"%detail)
 		return WordLists
 
+	def GetAvailableDicts(self) :
+		"""
+		Return the dictionaries available in the database
+
+		Return values:
+			Dicts - a list of tuples with the available dictionaries in the database
+			where the SQL query used controls the order of items in the tuple
+		"""
+		try :
+			self.DB_Cursor.execute(self.SQLCMDs['SelectDictTables'])
+			Dicts = self.DB_Cursor.fetchall()
+		except Exception as detail :
+			logging.error("Failed to return dictionaries: %s"%detail)
+		return Dicts
+
 	def GetXY(self,WordListRef,SetID,Limit=None,Offset=0) :
 		"""
 		Return feature vectors and their classes. The order is controlled by the SQL query used, and there
@@ -687,13 +759,7 @@ class EmailSamplesDB :
 			Y - a list of the classes associated with the returned feature vectors
 		"""
 		try :
-			if isinstance(WordListRef,str) :
-				self.DB_Cursor.execute(self.SQLCMDs['SelectWordListID'],(WordListRef,))
-				list_id = self.DB_Cursor.fetchone()[0]
-			elif isinstance(WordListRef,int) :
-				list_id = WordListRef
-			else :
-				raise TypeError("WordListRef must be str or int")
+			ListName,list_id,DictRef,DictName = self.ResolveListRef(WordListRef)
 			if Limit is None :
 				self.DB_Cursor.execute(self.SQLCMDs['SampleCount'])
 				Limit = self.DB_Cursor.fetchone()[0]
@@ -710,6 +776,35 @@ class EmailSamplesDB :
 		except Exception as detail :
 			logging.error("Failed to get X and Y lists: %s"%detail)
 		return X,Y
+
+	def ResolveListRef(self,WordListRef) :
+		if isinstance(WordListRef,str) :
+			ListName = WordListRef
+			self.DB_Cursor.execute(self.SQLCMDs['SelectWordListID'],(WordListRef,))
+			list_id = self.DB_Cursor.fetchone()[0]
+		elif isinstance(WordListRef,int) :
+			list_id = WordListRef
+			self.DB_Cursor.execute(self.SQLCMDs['SelectWordList'],(WordListRef,))
+			ListName = self.DB_Cursor.fetchone()[0]
+		else :
+			raise TypeError("WordListRef must be str or int")
+		self.DB_Cursor.execute(self.SQLCMDs['SelectDictRef'],(list_id,))
+		DictRef = self.DB_Cursor.fetchone()[0]
+		DictName,dict_id = self.ResolveDictRef(DictRef)
+		return ListName,list_id,DictRef,DictName
+
+	def ResolveDictRef(self,DictRef) :
+		if isinstance(DictRef,str) :
+			DictName = DictRef
+			self.DB_Cursor.execute(self.SQLCMDs['SelectDictID'],(DictRef,))
+			dict_id = self.DB_Cursor.fetchone()[0]
+		elif isinstance(DictRef,int) :
+			dict_id = DictRef
+			self.DB_Cursor.execute(self.SQLCMDs['SelectDictTable'],(DictRef,))
+			DictName = self.DB_Cursor.fetchone()[0]
+		else :
+			raise TypeError("DictName must be str or int")
+		return DictName,dict_id
 
 	def AssignSamplesToSets(self,NumNewSamples,samp_distr_targ) :
 		"""
@@ -797,13 +892,22 @@ class EmailSamplesDB :
 			error += val*val
 		return error
 
+class SQLCMDObj :
+	def __init__(self,DBobj,sqlcmdname,params=()) :
+		self.params = params
+		self.DBobj = DBobj
+		self.sqlstr = self.DBobj.SQLCMDs[sqlcmdname]
+	def run(self) :
+		return self.DBobj.DB_Cursor.execute(self.sqlstr,self.params)
+
 ###################################### Main Program ###################################### 
 
 if __name__ == "__main__" :
 	logging.basicConfig(level=logging.INFO)
 	aa = EmailSamplesDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\EmailSamplesDB_SQL.json",
-						r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\DBSetup_SQL.json")
-	aa.ConnectDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\tester2.sqlite3")
+						r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\DBSetup_SQL.json",
+						r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\TempDB_SQL.json")
+	aa.ConnectDB(r"C:\Users\jcole119213\Documents\Python Scripts\LearningCurveApp\tester1.sqlite3")
 	print "Creating fresh database"
 	aa.CreateDB()
 	print "Adding good email messages"
@@ -824,11 +928,13 @@ if __name__ == "__main__" :
 	aa.UpdateWordList(list_id,False)
 	print "Making the feature vectors"
 	start_time = time.time()
-	aa.MakeFeatureVecs(WordListRef,"SelectBodies")
+	CountSamps = SQLCMDObj(aa,"SampleCount")
+	SelectSamps = SQLCMDObj(aa,"SelectBodies")
+	aa.MakeFeatureVecs(WordListRef,CountSamps,SelectSamps)
 	elapsed_time = time.time() - start_time
 	print "Elapsed time:",elapsed_time,'s'
 	start_time = time.time()
-	aa.MakeFeatureVecs(list_id,"SelectBodies")
+	aa.MakeFeatureVecs(list_id,CountSamps,SelectSamps)
 	elapsed_time = time.time() - start_time
 	print "Elapsed time:",elapsed_time,'s'
 	#print "Write a word list to a file"
